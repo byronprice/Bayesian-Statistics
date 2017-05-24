@@ -22,26 +22,32 @@ function [W,sigmasquare,C,qeff] = BayesianPCA(data)
 %        I-q is the identity matrix with q = d-1 dimensions
 %      W is the linear transformation matrix that transforms the data
 %       from the latent space to the original space
+%      
+%        x(:,ii) = inv(W)*(data(:,ii)-mu)
 % 
 %Created: 2017/05/24
 % Byron Price
 %Updated: 2017/05/24
 %By: Byron Price
+warning('off','all');
 
 [d,N] = size(data);
 q = d-1;
 
 S = cov(data');
 
-numIter = 500;
+numIter = 5000;
 
 alpha = zeros(q,1);
 estSigma = zeros(numIter,1);
 
 mu = mean(data,2);
+data = data-repmat(mu,[1,N]);
+mu = mean(data,2);
 [V,D] = eig(S);
 W = V(:,2:end)*sqrtm(D(2:end,2:end)-D(1,1)*eye(q));
-estSigma(1) = 1;
+eigvals = diag(D);maxeigval = max(eigvals);
+estSigma(1) = mean(eigvals(eigvals<(0.05*maxeigval)));
 figure();plotwb(W);
 
 % BAYESIAN PCA (BISHOP) EM
@@ -57,7 +63,7 @@ for ii=2:numIter
    end
    
    for jj=1:q
-      alpha(jj) = d/(norm(W(:,jj))^2); 
+      alpha(jj) = d/(norm(W(:,jj),'fro')^2); 
    end
    A = diag(alpha);
     
@@ -72,8 +78,8 @@ for ii=2:numIter
    
    temp = 0;
    for jj=1:N
-       temp = temp+norm(data(:,jj)-mu)^2-2*xn(:,jj)'*W'*(data(:,jj)-mu)+...
-           trace(squeeze(xnxnt(:,:,jj))*W'*W);
+       temp = temp+(norm(data(:,jj)-mu,'fro')^2-2*xn(:,jj)'*W'*(data(:,jj)-mu)+...
+           trace(squeeze(xnxnt(:,:,jj))*W'*W));
    end
    estSigma(ii) = temp./(N*d);
 
@@ -82,11 +88,13 @@ for ii=2:numIter
     end
 end
 
+fprintf('Number of iterations: %d\n',ii);
+
 sigmasquare = estSigma(ii);
 figure();plotwb(W);
 tempW = W;result = [];
 for jj=1:q
-    if sum(abs(W(:,jj))) < 1e-6
+    if norm(W(:,jj),'fro') < 1e-5
     else
         result = [result,jj];
     end
