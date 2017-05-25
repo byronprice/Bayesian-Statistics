@@ -2,11 +2,11 @@
 %  example of Gibbs sampling under a change-point model
 %   from Bayesian Inference: Gibbs Sampling, Yildirim 2012
 
-N = 200;
-truen = 87;
+N = 250;
+truen = 117;
 
-lambda1 = 3;
-lambda2 = 4;
+lambda1 = 2;
+lambda2 = 5;
 
 fprintf('Change-Point Model\n');
 fprintf('True Change Point n: %d\n',truen);
@@ -25,9 +25,9 @@ a = 2;b=1/1; % the paper I reference uses the
 % RUN MCMC FIRST
 tic;
 numParams = 3;
-numIter = 4e4;
+numIter = 7e4;
 burnIn = 1e4;
-updateParam = 1e-3;
+updateParam = 1e-2;
 posterior = zeros(numIter,1);
 allParams = zeros(numParams,numIter);
 
@@ -40,10 +40,13 @@ uBound = [N,Inf,Inf]';
 
 mu = zeros(numParams,1);
 sigma = eye(numParams);
+sigma(1,1) = 200;
+sigma(2,2) = 0.1;
+sigma(3,3) = 0.1;
 
 loglambda = log(2.38^2/numParams);
 updateMu = mvnrnd(mu,sigma)';
-optimalAccept = 0.234;
+optimalAccept = 0.44;%0.234;
 
 ML = sum(log(poisspdf(data(1:round(allParams(1,1))),allParams(2,1))));
 ML = ML+sum(log(poisspdf(data(round(allParams(1,1))+1:end),allParams(3,1))));
@@ -88,7 +91,13 @@ end
 [estMAP,ind] = max(posterior);
 paramMAP = allParams(:,ind);
 
-posteriorMCMCSamples = allParams(:,burnIn:5:end);
+figure();stem(1:N,data);hold on;
+n = round(paramMAP(1));
+plot(1:n,ones(n,1).*paramMAP(2),'k','LineWidth',3);
+plot(n+1:N,ones(N-n,1).*paramMAP(3),'k','LineWidth',3);
+title('Change-Point Model MAP Fit');
+
+posteriorMCMCSamples = allParams(:,burnIn:10:end);
 
 
 figure();numRows = ceil(numParams/2);
