@@ -6,6 +6,6 @@ function [ Y ] = inversegampdf( X,A,B )
 %   scalar input functions is a constant matrix of the same size as the
 %   other inputs.
 
-Y = B^A/gamma(A)*X.^(-A-1).*exp(-B./X);
+Y = (B^A/gamma(A)).*X.^(-A-1).*exp(-B./X);
 
 end
