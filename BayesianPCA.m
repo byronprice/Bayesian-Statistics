@@ -1,16 +1,22 @@
-function [W,sigmasquare,C,qeff] = BayesianPCA(data)
+function [W,eigenvalues,sigmasquare,C,qeff] = BayesianPCA(data,q)
 %BayesianPCA.m
 %   Implement Bayesian PCA algorithm from C.M. Bishop 1999 
 %    Microsoft Research
 
 %INPUT: Data - d-by-N matrix of N d-dimensional data points
+%        OPTIONAL
+%       q - the maximum dimensionality of the latent space (the maximum
+%         number of retained eigenvalues/eigenvectors), defaults to q=d-1
 %
-%OUTPUT: W - maximum a posteriori solution for W, where W is a lower-rank
+%OUTPUT: W - maximum a posteriori solution for W, where W is a low-rank
 %         representation of the data covariance matrix S ( S = cov(data) )
+%           ... columns are principal eigenvectors
+%        eigenvalues - vector of eigenvalues (equivalent to the variance
+%           along the axis created by the corresponding eigenvector)
 %        C - the approximate covariance matrix extrapolated from the
 %         matrix W
 %           C = W*W'+sigmasquare*eye(d)
-%        sigmasquare - the variance of the discarded dimensions, for
+%        sigmasquare - the average variance of the discarded dimensions, for
 %         reconstruction of the covariance matrix C
 %        qeff - effective dimensionality of the latent space
 %  
@@ -27,84 +33,109 @@ function [W,sigmasquare,C,qeff] = BayesianPCA(data)
 % 
 %Created: 2017/05/24
 % Byron Price
-%Updated: 2017/05/24
+%Updated: 2017/05/31
 %By: Byron Price
 warning('off','all');
 
 [d,N] = size(data);
-q = d-1;
 
-S = cov(data');
+if nargin == 1
+    q = d-1;
+end
 
 numIter = 5000;
 
 alpha = zeros(q,1);
-estSigma = zeros(numIter,1);
 
 mu = mean(data,2);
 data = data-repmat(mu,[1,N]);
-mu = mean(data,2);
-[V,D] = eig(S);
-W = V(:,2:end)*sqrtm(D(2:end,2:end)-D(1,1)*eye(q));
-eigvals = diag(D);maxeigval = max(eigvals);
-estSigma(1) = mean(eigvals(eigvals<(0.05*maxeigval)));
-figure();plotwb(W);
 
-% BAYESIAN PCA (BISHOP) EM
+% [V,D] = eig(S);
+% W = V(:,2:end)*sqrtm(D(2:end,2:end)-D(1,1)*eye(q));
+% eigvals = diag(D);maxeigval = max(eigvals);
+estSigma = var(data(:))/2;
+
+if d*N <= 1e5
+    S = cov(data');
+    [V,D] = eig(S);
+    start = d-q+1;
+    eigenvals = diag(D);
+    meanEig = mean(eigenvals(1:start-1));
+    W = V(:,start:end)*sqrtm(D(start:end,start:end)-meanEig.*eye(q));
+    W = fliplr(W);
+else
+    W = normrnd(0,1,[d,q]);
+end
+
+for jj=1:q
+    alpha(jj) = d/(norm(W(:,jj),'fro')^2);
+end
+
+expectedMean = zeros(q,N);
+expectedCov = zeros(q,q,N);
+% BAYESIAN PCA (BISHOP) EM ... with constraints
+% figure();
 for ii=2:numIter
-   prevW = W;
-   M = W'*W+estSigma(ii-1)*eye(q);
+   prevW = W;prevSigma = estSigma;
+   M = W'*W+estSigma.*eye(q);
+   Minv = inv(tril(M));
    
-   xn = zeros(q,N);
-   xnxnt = zeros(q,q,N);
+   expectedMean = Minv*W'*data;
    for jj=1:N
-      xn(:,jj) = (M\W')*(data(:,jj)-mu);
-      xnxnt(:,:,jj) = estSigma(ii-1)*M+xn(:,jj)*xn(:,jj)';
+      expectedCov(:,:,jj) = estSigma.*Minv+(expectedMean(:,jj)*expectedMean(:,jj)'); 
    end
+   
+   A = diag(alpha);
+   
+   W = (data*expectedMean')*inv(triu(sum(expectedCov,3)+estSigma.*A));
    
    for jj=1:q
-      alpha(jj) = d/(norm(W(:,jj),'fro')^2); 
+      alpha(jj) = d/(W(:,jj)'*W(:,jj)); 
    end
-   A = diag(alpha);
-    
-   temp1 = 0;temp2 = 0;
-   for jj=1:N
-       temp1 = temp1+(data(:,jj)-mu)*xn(:,jj)';
-       temp2 = temp2+squeeze(xnxnt(:,:,jj));
-   end
-   temp2 = temp2+estSigma(ii-1)*A;
-   
-   W = temp1*inv(temp2);
    
    temp = 0;
    for jj=1:N
-       temp = temp+(norm(data(:,jj)-mu,'fro')^2-2*xn(:,jj)'*W'*(data(:,jj)-mu)+...
-           trace(squeeze(xnxnt(:,:,jj))*W'*W));
+       temp = temp+norm(data(:,jj),'fro')^2-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
+           trace(squeeze(expectedCov(:,:,jj))*(W')*W);
    end
-   estSigma(ii) = temp./(N*d);
+   estSigma = temp./(N*d);
 
-    if abs(estSigma(ii)-estSigma(ii-1)) < 1e-5 && abs(sum(abs(W(:)))-sum(abs(prevW(:)))) < 1e-5
+    if abs(estSigma-prevSigma) < 1e-6 && sum(abs(W(:)-prevW(:))) < 1e-6
         break;
     end
+%     scatter(ii,sum(sum(abs(S-(W*W'+estSigma.*eye(d))))));hold on;pause(0.01);
 end
 
 fprintf('Number of iterations: %d\n',ii);
-
-sigmasquare = estSigma(ii);
-figure();plotwb(W);
-tempW = W;result = [];
+sigmasquare = estSigma;
+result = [];qeff = 0;temp = [];
 for jj=1:q
-    if norm(W(:,jj),'fro') < 1e-5
+    columnNorm = norm(W(:,jj),'fro');
+    if columnNorm < 1e-3
     else
-        result = [result,jj];
+        qeff = qeff+1;
+        result = [result,W(:,jj)./columnNorm];
+        temp = [temp,W(:,jj)];
     end
 end
-W = tempW(:,result);
-qeff = length(result);
-
+W = temp;
 C = W*W'+sigmasquare*eye(d);
-totalError = sum(sum(abs(C-S)))./numel(S);
-fprintf('Error in reconstruction of covariance matrix S from W: %3.2f\n',totalError);
+
+eigenvalues = zeros(qeff,1);
+if d*N <= 1e5
+    for ii=1:qeff
+        eigenvalues(ii) = result(:,ii)'*S*result(:,ii); 
+    end
+else
+   eigenvalues = diag(W'*W+sigmasquare.*eye(qeff));
+end 
+
 fprintf('Effective dimensionality: %d\n',qeff);
 end
+
+%  for constrained EM PCA ... no orthogonal ambiguity
+% for iter=1:maxIter
+%  H = tril(W'*W)\(W'*data);
+%  W = (data*H')/triu(H*H');
+% end
 
