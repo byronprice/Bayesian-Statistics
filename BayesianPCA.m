@@ -78,7 +78,7 @@ expectedCov = zeros(q,q,N);
 for ii=2:numIter
    prevW = W;prevSigma = estSigma;
    M = W'*W+estSigma.*eye(q);
-   Minv = inv(tril(M));
+   Minv = inv(tril(M)')';
    
    expectedMean = Minv*W'*data;
    for jj=1:N
