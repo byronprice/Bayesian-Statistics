@@ -35,6 +35,21 @@ function [W,eigenvalues,sigmasquare,C,qeff] = BayesianPCA(data,q)
 % Byron Price
 %Updated: 2017/05/31
 %By: Byron Price
+
+% example data
+% d = 10;N = 500;data = zeros(d,N);
+% for ii=1:N
+%     for jj=1:4
+%         data(jj,ii) = normrnd(0,1);
+%     end
+% end
+% for ii=1:N
+%     for jj=5:d
+%         data(jj,ii) = normrnd(0,0.4);
+%     end
+% end
+% dataMu = mean(data,2);
+% data = data-repmat(dataMu,[1,N]);
 warning('off','all');
 
 [d,N] = size(data);
@@ -55,7 +70,8 @@ data = data-repmat(mu,[1,N]);
 % eigvals = diag(D);maxeigval = max(eigvals);
 estSigma = var(data(:))/2;
 
-if d*N <= 1e5
+decisionSize = 5e3;
+if d <= decisionSize
     S = cov(data');
     [V,D] = eig(S);
     start = d-q+1;
@@ -66,6 +82,7 @@ if d*N <= 1e5
 else
     W = normrnd(0,1,[d,q]);
 end
+
 
 for jj=1:q
     alpha(jj) = d/(norm(W(:,jj),'fro')^2);
@@ -78,16 +95,18 @@ expectedCov = zeros(q,q,N);
 for ii=2:numIter
    prevW = W;prevSigma = estSigma;
    M = W'*W+estSigma.*eye(q);
-   Minv = inv(tril(M));
+   Minv = 1./M(1:q+1:end)';% inv(tril(M)')';%
+
    
-   expectedMean = Minv*W'*data;
+   expectedMean = Minv.*W'*data;
    for jj=1:N
-      expectedCov(:,:,jj) = estSigma.*Minv+(expectedMean(:,jj)*expectedMean(:,jj)'); 
+      expectedCov(:,:,jj) = estSigma.*diag(Minv)+(expectedMean(:,jj)*expectedMean(:,jj)'); 
    end
    
    A = diag(alpha);
    
    W = (data*expectedMean')*inv(triu(sum(expectedCov,3)+estSigma.*A));
+%    W = (data*expectedMean')*inv(triu(expectedMean*expectedMean'+(estSigma*N).*diag(Minv)+estSigma.*A));
    
    for jj=1:q
       alpha(jj) = d/(W(:,jj)'*W(:,jj)); 
@@ -96,7 +115,7 @@ for ii=2:numIter
    temp = 0;
    for jj=1:N
        temp = temp+norm(data(:,jj),'fro')^2-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
-           trace(squeeze(expectedCov(:,:,jj))*(W')*W);
+           trace(squeeze(expectedCov(:,:,jj))*(W'*W));
    end
    estSigma = temp./(N*d);
 
@@ -122,7 +141,7 @@ W = temp;
 C = W*W'+sigmasquare*eye(d);
 
 eigenvalues = zeros(qeff,1);
-if d*N <= 1e5
+if d <= decisionSize
     for ii=1:qeff
         eigenvalues(ii) = result(:,ii)'*S*result(:,ii); 
     end
