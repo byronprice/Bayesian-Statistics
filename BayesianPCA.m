@@ -29,7 +29,7 @@ function [W,eigenvalues,sigmasquare,C,qeff] = BayesianPCA(data,q)
 %      W is the linear transformation matrix that transforms the data
 %       from the latent space to the original space
 %      
-%        x(:,ii) = inv(W)*(data(:,ii)-mu)
+%        x(:,ii) = pinv(W)*(data(:,ii)-mu)
 % 
 %Created: 2017/05/24
 % Byron Price
@@ -133,7 +133,7 @@ sigmasquare = estSigma;
 result = [];qeff = 0;temp = [];
 for jj=1:q
     columnNorm = norm(W(:,jj),'fro');
-    if columnNorm < 1e-5
+    if columnNorm < 1e-6
     else
         qeff = qeff+1;
         result = [result,W(:,jj)./columnNorm];
