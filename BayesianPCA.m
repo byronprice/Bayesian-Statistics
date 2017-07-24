@@ -70,8 +70,8 @@ data = data-repmat(mu,[1,N]);
 % eigvals = diag(D);maxeigval = max(eigvals);
 estSigma = var(data(:))/2;
 
-decisionSize = 5e3;
-if d <= decisionSize
+decisionSize = 1e6;
+if d*N <= decisionSize
     S = cov(data');
     [V,D] = eig(S);
     start = d-q+1;
@@ -88,8 +88,8 @@ for jj=1:q
     alpha(jj) = d/(norm(W(:,jj),'fro')^2);
 end
 
-expectedMean = zeros(q,N);
-expectedCov = zeros(q,q,N);
+% expectedMean = zeros(q,N);
+% expectedCov = zeros(q,q);
 % BAYESIAN PCA (BISHOP) EM ... with constraints
 % figure();
 for ii=2:numIter
@@ -99,13 +99,14 @@ for ii=2:numIter
 
    
    expectedMean = Minv.*W'*data;
+   expectedCov = zeros(q,q);
    for jj=1:N
-      expectedCov(:,:,jj) = estSigma.*diag(Minv)+(expectedMean(:,jj)*expectedMean(:,jj)'); 
+      expectedCov = expectedCov+estSigma.*diag(Minv)+(expectedMean(:,jj)*expectedMean(:,jj)'); 
    end
    
    A = diag(alpha);
    
-   W = (data*expectedMean')*inv(triu(sum(expectedCov,3)+estSigma.*A));
+   W = (data*expectedMean')*inv(triu(expectedCov+estSigma.*A));
 %    W = (data*expectedMean')*inv(triu(expectedMean*expectedMean'+(estSigma*N).*diag(Minv)+estSigma.*A));
    
    for jj=1:q
@@ -115,7 +116,7 @@ for ii=2:numIter
    temp = 0;
    for jj=1:N
        temp = temp+norm(data(:,jj),'fro')^2-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
-           trace(squeeze(expectedCov(:,:,jj))*(W'*W));
+           trace((estSigma.*diag(Minv)+(expectedMean(:,jj)*expectedMean(:,jj)'))*(W'*W));
    end
    estSigma = temp./(N*d);
 
@@ -141,7 +142,7 @@ W = temp;
 C = W*W'+sigmasquare*eye(d);
 
 eigenvalues = zeros(qeff,1);
-if d <= decisionSize
+if d*N <= decisionSize
     for ii=1:qeff
         eigenvalues(ii) = result(:,ii)'*S*result(:,ii); 
     end
