@@ -113,6 +113,8 @@ for ii=2:numIter
       alpha(jj) = d/(W(:,jj)'*W(:,jj)); 
    end
    
+   % try to speed up the trace calculation, there are thousands of
+   % unnecessary multiplications and additions in the current format
    temp = 0;
    for jj=1:N
        temp = temp+norm(data(:,jj),'fro')^2-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
