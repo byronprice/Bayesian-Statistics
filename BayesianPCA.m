@@ -33,7 +33,7 @@ function [W,eigenvalues,sigmasquare,C,qeff] = BayesianPCA(data,q)
 % 
 %Created: 2017/05/24
 % Byron Price
-%Updated: 2017/05/31
+%Updated: 2017/07/25
 %By: Byron Price
 
 % example data
@@ -115,10 +115,11 @@ for ii=2:numIter
    
    % try to speed up the trace calculation, there are thousands of
    % unnecessary multiplications and additions in the current format
+   WtransW = W'*W;
    temp = 0;
    for jj=1:N
        temp = temp+norm(data(:,jj),'fro')^2-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
-           trace((estSigma.*diag(Minv)+(expectedMean(:,jj)*expectedMean(:,jj)'))*(W'*W));
+           CalcTrace(estSigma,Minv,expectedMean(:,jj),WtransW,q);
    end
    estSigma = temp./(N*d);
 
@@ -154,7 +155,16 @@ end
 
 fprintf('Effective dimensionality: %d\n',qeff);
 end
+%trace((estSigma.*diag(Minv)+(expectedMean(:,jj)*expectedMean(:,jj)'))*(W'*W));
 
+function [finalTrace] = CalcTrace(estSigma,Minv,expectedMeanVec,WtransW,q)
+    firstMat = estSigma.*diag(Minv)+(expectedMeanVec*expectedMeanVec');
+    
+    finalTrace = 0;
+    for ii=1:q
+        finalTrace = finalTrace+firstMat(ii,:)*WtransW(:,ii);
+    end
+end
 %  for constrained EM PCA ... no orthogonal ambiguity
 % for iter=1:maxIter
 %  H = tril(W'*W)\(W'*data);
