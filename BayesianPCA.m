@@ -1,4 +1,4 @@
-function [W,eigenvalues,sigmasquare,C,qeff] = BayesianPCA(data,q)
+function [W,eigenvalues,sigmasquare,mu,qeff] = BayesianPCA(data,q)
 %BayesianPCA.m
 %   Implement Bayesian PCA algorithm from C.M. Bishop 1999 
 %    Microsoft Research
@@ -58,7 +58,7 @@ if nargin == 1
     q = d-1;
 end
 
-numIter = 5000;
+numIter = 1e5;
 
 alpha = zeros(q,1);
 
@@ -68,7 +68,6 @@ data = data-repmat(mu,[1,N]);
 % [V,D] = eig(S);
 % W = V(:,2:end)*sqrtm(D(2:end,2:end)-D(1,1)*eye(q));
 % eigvals = diag(D);maxeigval = max(eigvals);
-estSigma = var(data(:))/2;
 
 decisionSize = 1e7;
 if d*N <= decisionSize
@@ -79,8 +78,10 @@ if d*N <= decisionSize
     meanEig = mean(eigenvals(1:start-1));
     W = V(:,start:end)*sqrtm(D(start:end,start:end)-meanEig.*eye(q));
     W = fliplr(W);
+    estSigma = meanEig;
 else
     W = normrnd(0,1,[d,q]);
+    estSigma = 1;
 end
 
 
@@ -90,6 +91,11 @@ end
 
 % expectedMean = zeros(q,N);
 expectedCov = zeros(q,q,N);
+
+dataSuffStat = zeros(N,1);
+for ii=1:N
+   dataSuffStat(ii) = data(:,ii)'*data(:,ii);
+end
 % BAYESIAN PCA (BISHOP) EM ... with constraints
 % figure();
 for ii=2:numIter
@@ -117,7 +123,7 @@ for ii=2:numIter
    WtransW = W'*W;
    temp = 0;
    for jj=1:N
-       temp = temp+data(:,jj)'*data(:,jj)-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
+       temp = temp+dataSuffStat(jj)-2*(expectedMean(:,jj)')*(W')*data(:,jj)+...
            CalcTrace(squeeze(expectedCov(:,:,jj)),WtransW,q);
    end
    estSigma = temp./(N*d);
@@ -141,7 +147,7 @@ for jj=1:q
     end
 end
 W = temp;
-C = W*W'+sigmasquare*eye(d);
+%C = W*W'+sigmasquare*eye(d);
 
 eigenvalues = zeros(qeff,1);
 if d*N <= decisionSize
