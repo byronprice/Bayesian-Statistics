@@ -58,7 +58,7 @@ if nargin == 1
     q = d-1;
 end
 
-numIter = 5000;
+numIter = 50000;
 
 alpha = zeros(q,1);
 
@@ -70,7 +70,7 @@ data = data-repmat(mu,[1,N]);
 % eigvals = diag(D);maxeigval = max(eigvals);
 estSigma = var(data(:))/2;
 
-decisionSize = 1e7;
+decisionSize = 1e9;
 if d*N <= decisionSize
     S = cov(data');
     [V,D] = eig(S);
