@@ -69,7 +69,7 @@ data = data-repmat(mu,[1,N]);
 % W = V(:,2:end)*sqrtm(D(2:end,2:end)-D(1,1)*eye(q));
 % eigvals = diag(D);maxeigval = max(eigvals);
 
-decisionSize = 1e7;
+decisionSize = 1e9;
 if d*N <= decisionSize
     S = cov(data');
     [V,D] = eig(S);
