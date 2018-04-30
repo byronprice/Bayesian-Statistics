@@ -1,4 +1,4 @@
-function [W,eigenvalues,sigmasquare,mu] = BayesianPCA(data,q)
+function [W,eigenvalues,sigmasquare,mu] = RegularPCA(data,q)
 %RegularPCA.m
 %   Implement probabilistic PCA algorithm from C.M. Bishop 1999 
 %    Microsoft Research
@@ -59,8 +59,6 @@ end
 
 mu = mean(data,2);
 data = data-repmat(mu,[1,N]);
-
-
 
 S = cov(data');
 [V,D] = eig(S);
