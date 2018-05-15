@@ -68,5 +68,5 @@ meanEig = mean(eigenvals(1:start-1));
 W = V(:,start:end)*sqrtm(D(start:end,start:end)-meanEig.*eye(q));
 W = fliplr(W);
 sigmasquare = meanEig;
-eigenvalues = eigenvals(start:end);
+eigenvalues = flipud(eigenvals(start:end));
 end
