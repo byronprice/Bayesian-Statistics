@@ -1,4 +1,4 @@
-function [W,eigenvalues,sigmasquare,mu] = RegularPCA(data,q)
+function [W,eigenvalues,sigmasquare,mu,x] = RegularPCA(data,q)
 %RegularPCA.m
 %   Implement probabilistic PCA algorithm from C.M. Bishop 1999 
 %    Microsoft Research
@@ -13,18 +13,20 @@ function [W,eigenvalues,sigmasquare,mu] = RegularPCA(data,q)
 %           ... columns are principal eigenvectors
 %        eigenvalues - vector of eigenvalues (equivalent to the variance
 %           along the axis created by the corresponding eigenvector)
-%        C - the approximate covariance matrix extrapolated from the
-%         matrix W
-%           C = W*W'+sigmasquare*eye(d)
 %        sigmasquare - the average variance of the discarded dimensions, for
 %         reconstruction of the covariance matrix C
+%        mu - the mean of the data along each dimension (d-by-1)
+%        x - the data transformed into PC space (latent space) (q-by-N)
 %  
+%        the approximate covariance matrix, C, extrapolated from the
+%         matrix W
+%            C = W*W'+sigmasquare*eye(d)
 % this implementation of PCA assumes a latent-variable model of the form
 %    data(:,ii) = W*x(:,ii)+mu+E  ... ii=1:N
 %      where mu = mean(data,2); ... the mean of each data dimension
 %      E is the error (zero-mean gaussian)
 %      x is the latent space representation with prior N(0,I-q)
-%        I-q is the identity matrix with q = d-1 dimensions
+%        I-q is the identity matrix with q dimensions
 %      W is the linear transformation matrix that transforms the data
 %       from the latent space to the original space
 %      
@@ -32,7 +34,7 @@ function [W,eigenvalues,sigmasquare,mu] = RegularPCA(data,q)
 % 
 %Created: 2017/05/24
 % Byron Price
-%Updated: 2017/07/25
+%Updated: 2019/02/20
 %By: Byron Price
 
 % example data
@@ -69,4 +71,6 @@ W = V(:,start:end)*sqrtm(D(start:end,start:end)-meanEig.*eye(q));
 W = fliplr(W);
 sigmasquare = meanEig;
 eigenvalues = flipud(eigenvals(start:end));
+
+x = pinv(W)*data;
 end
