@@ -60,7 +60,7 @@ for ii=2:numIter
    Z = mvnrnd(mu,exp(loglambda)*sigma)';
    pStar = allParams(:,ii-1)+Z;
    
-   if sum(pStar<=lBound) == 0 & sum(pStar>=uBound) == 0
+   if sum(pStar<=lBound) == 0 && sum(pStar>=uBound) == 0
        changepoint = round(pStar(1));
        ML = sum(log(poisspdf(data(1:changepoint),pStar(2))));
        ML = ML+sum(log(poisspdf(data(changepoint+1:end),pStar(3))));
@@ -97,7 +97,7 @@ plot(1:n,ones(n,1).*paramMAP(2),'k','LineWidth',3);
 plot(n+1:N,ones(N-n,1).*paramMAP(3),'k','LineWidth',3);
 title('Change-Point Model MAP Fit');
 
-posteriorMCMCSamples = allParams(:,burnIn:10:end);
+posteriorMCMCSamples = allParams(:,burnIn:50:end);
 
 
 figure();numRows = ceil(numParams/2);
@@ -143,7 +143,7 @@ for ii=2:numIter
     allParams(1,ii) = ind;
 end
 
-posteriorGibbsSamples = allParams(:,burnIn:2:numIter);
+posteriorGibbsSamples = allParams(:,burnIn:10:numIter);
 
 figure();numRows = ceil(numParams/2);
 for ii=1:numParams
