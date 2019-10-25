@@ -1,6 +1,6 @@
 % MA578_HW4.m
 
-% BDA problem 4.1 and 2.11
+% BDA3 problem 4.1 and 2.11
 Y = [-2,-1,0,1.5,2.5];a = -4;b = 4;
 
 cauchyFun = @(y,theta) 1./(1+(y-theta).^2);
@@ -44,7 +44,7 @@ tmp = tmp./sum(tmp);
 plot(thetagrid,tmp);legend('True Posterior','Normal Approx');
 
 
-% problem 5.13
+% BDA3 problem 5.13
 Y = [16,9,10,13,19,20,18,17,35,55]';J = length(Y);
 X = [58,90,48,57,103,57,86,112,273,64]';
 N = X+Y;
@@ -66,8 +66,8 @@ for jj=1:J
     posteriorSamples(jj,1) = log(p./(1-p));
 end
 
-posteriorSamples(J+1,1) = 1;
-posteriorSamples(J+2,1) = 1;
+posteriorSamples(J+1,1) = 3;
+posteriorSamples(J+2,1) = 3;
 
 logposterior = sum(logbinopdf(Y,N,posteriorSamples(1:J,1)))+...
     sum(logbetapdf(posteriorSamples(1:J,1),posteriorSamples(J+1,1),posteriorSamples(J+2,1)))+...
