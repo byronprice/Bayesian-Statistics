@@ -292,8 +292,8 @@ for ii=2:iter
 end
 
 params = params(burnIn+1:skipRate:end,:);
-params(:,3) = exp(params(:,4));
-params(:,5) = exp(params(:,7));
+params(:,4) = exp(params(:,4));
+params(:,7) = exp(params(:,7));
 
 figure;plot(posterior);
 
