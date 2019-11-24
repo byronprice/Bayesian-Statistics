@@ -104,5 +104,203 @@ for jj=1:J
     end
 end
 
+% add additional component for prior on probability of having a basement
+prior = [0.5,0.5];betaPost = zeros(J,2);
+for jj=1:J
+    betaPost(jj,:) = [prior(1)+sum(radonData{jj,2}==1),prior(2)+sum(radonData{jj,2}==0)];
+end
+
+predictive = zeros(iter,J);count = 1;figure;
+for jj=1:J
+    countyInd = jj+1;
+    firstFloor = binornd(1,betarnd(betaPost(jj,1),betaPost(jj,2)));
+    for tt=1:iter
+        sigsquare = posteriorSamples(tt,1);
+        meanVal = posteriorSamples(tt,countyInd);
+        
+        if firstfloor==1
+            meanVal = meanVal+posteriorSamples(tt,5);
+        end
+        newData = exp(normrnd(meanVal,sqrt(sigsquare)));
+        
+        predictive(tt,jj) = newData;
+    end
+    subplot(3,1,count);histogram(squeeze(predictive(:,jj)));
+    title(sprintf('Predictive: %s',radonData{jj,3}));
+    count = count+1;
+    axis([0 50 0 350]);
+    quantile(squeeze(predictive(:,jj)),[alpha/2,1-alpha/2])
+end
+
 %% PROBLEM 2: BDA3 14.11, 14.12, 14.13
 
+data = log([[31.2;24;19.8;18.2;9.6;6.5;3.2],[10750;8805;7500;7662;5286;3724;2423],...
+    [1113;982;908;842;626;430;281]]);
+
+iter = 24e5;burnIn = 4e5;skipRate = 2000;
+
+numParams = 5;
+params = zeros(iter,numParams);
+
+X = [ones(length(data(:,1)),1),data(:,1)];
+tmp = X\data(:,3);
+
+params(1,1) = tmp(1); % a
+params(1,2) = tmp(2); % b
+params(1,3) = log(var(data(:,3)-X*tmp)); % sigmsquare
+params(1,4) = mean(data(:,1)); % mu
+params(1,5) = log(var(data(:,1))); % tausquare
+
+lognormpdf = @(x,mu,sigmasquare) -0.5*log(sigmasquare)-(1/(2*sigmasquare)).*(x-mu).^2;
+
+logcauchypdf = @(x,mu,gamma) -log(pi*gamma)+2*log(gamma)-log((x-mu).^2+gamma*gamma);
+
+abPrior = [0,10];
+
+posterior = zeros(iter,1);
+
+sigmasquare = exp(params(1,3));tausquare = exp(params(1,5));
+posterior(1) = sum(lognormpdf(data(:,1),params(1,4),sigmasquare+tausquare))+...
+    sum(lognormpdf(data(:,3),params(1,1)+params(1,2)*params(1,4),sigmasquare+params(1,2)^2*tausquare))...
+   +logcauchypdf(params(1,3),0,2.5)+logcauchypdf(params(1,5),0,2.5)+lognormpdf(params(1,1),abPrior(1),abPrior(2))+...
+    lognormpdf(params(1,2),abPrior(1),abPrior(2));
+
+
+loglambda = log(2.38^numParams);
+identity = eye(numParams);
+halfSigma = cholcov(identity*loglambda);
+sigma = halfSigma'*halfSigma;
+updateMu = params(1,:)';
+zeroVec = zeros(1,numParams);
+
+% figure;
+for ii=2:iter
+    starParams = params(ii-1,:)+mvnrnd(zeroVec,sigma);
+    
+    sigmasquare = exp(starParams(1,3));tausquare = exp(starParams(1,5));
+    starPosterior = sum(lognormpdf(data(:,1),starParams(1,4),sigmasquare+tausquare))+...
+        sum(lognormpdf(data(:,3),starParams(1,1)+starParams(1,2)*starParams(1,4),sigmasquare+starParams(1,2)^2*tausquare))...
+       +logcauchypdf(starParams(1,3),0,2.5)+logcauchypdf(starParams(1,5),0,2.5)...
+       +lognormpdf(starParams(1,1),abPrior(1),abPrior(2))+...
+        lognormpdf(starParams(1,2),abPrior(1),abPrior(2));
+    
+    logA = starPosterior-posterior(ii-1);
+    
+    if log(rand)<logA
+        params(ii,:) = starParams;
+        posterior(ii) = starPosterior;
+    else
+        params(ii,:) = params(ii-1,:);
+        posterior(ii) = posterior(ii-1);
+    end
+    
+    if mod(ii,500) == 0 && ii<burnIn
+        meanSubtract = params(ii,:)'-updateMu;
+        updateMu = updateMu+0.01.*meanSubtract;
+        halfSigma = halfSigma+0.01.*(triu((inv(halfSigma))*(halfSigma'*halfSigma+meanSubtract*...
+            meanSubtract')*((inv(halfSigma))')-identity)-halfSigma);
+        sigma = halfSigma'*halfSigma;
+    end
+    
+%     plot(ii,posterior(ii),'.');pause(1/100);hold on;
+end
+
+params = params(burnIn+1:skipRate:end,:);
+params(:,3) = exp(params(:,3));
+params(:,5) = exp(params(:,5));
+
+figure;plot(posterior);
+
+figure;
+paramNames = {'a','b','\sigma^2','\mu','\tau^2'};
+for ii=1:numParams
+    subplot(3,2,ii);histogram(params(:,ii));
+    title(sprintf('Posterior: %s',paramNames{ii}));
+    quantile(params(:,ii),[alpha/2,1-alpha/2])
+end
+
+% 14.13, use both columns of data as the design
+iter = 50e5;burnIn = 5e5;skipRate = 4500;
+
+numParams = 7;
+params = zeros(iter,numParams);
+
+X = [ones(length(data(:,1)),1),data(:,1),data(:,2)];
+tmp = X\data(:,3);
+
+params(1,1) = tmp(1); % a
+params(1,2) = tmp(2); % b
+params(1,3) = tmp(3);
+params(1,4) = log(var(data(:,3)-X*tmp)); % sigmsquare
+params(1,5) = mean(data(:,1)); % mu
+params(1,6) = mean(data(:,2));
+params(1,7) = log(var(data(:,1))+var(data(:,2))); % tausquare
+
+lognormpdf = @(x,mu,sigmasquare) -0.5*log(sigmasquare)-(1/(2*sigmasquare)).*(x-mu).^2;
+
+logcauchypdf = @(x,mu,gamma) -log(pi*gamma)+2*log(gamma)-log((x-mu).^2+gamma*gamma);
+
+abPrior = [0,10];
+
+posterior = zeros(iter,1);
+
+sigmasquare = exp(params(1,4));tausquare = exp(params(1,7));
+posterior(1) = sum(lognormpdf(data(:,1),params(1,5),sigmasquare+tausquare))+...
+    sum(lognormpdf(data(:,2),params(1,6),sigmasquare+tausquare))+...
+    sum(lognormpdf(data(:,3),params(1,1)+params(1,2)*params(1,5)+params(1,3)*params(1,6),sigmasquare+(params(1,2)^2+params(1,3)^2)*tausquare))...
+   +logcauchypdf(params(1,4),0,2.5)+logcauchypdf(params(1,7),0,2.5)+lognormpdf(params(1,1),abPrior(1),abPrior(2))+...
+    lognormpdf(params(1,2),abPrior(1),abPrior(2))+lognormpdf(params(1,3),abPrior(1),abPrior(2));
+
+
+loglambda = log(2.38^numParams);
+identity = eye(numParams);
+halfSigma = cholcov(identity*loglambda);
+sigma = halfSigma'*halfSigma;
+updateMu = params(1,:)';
+zeroVec = zeros(1,numParams);
+
+% figure;
+for ii=2:iter
+    starParams = params(ii-1,:)+mvnrnd(zeroVec,sigma);
+    
+    sigmasquare = exp(starParams(1,4));tausquare = exp(starParams(1,7));
+    starPosterior = sum(lognormpdf(data(:,1),starParams(1,5),sigmasquare+tausquare))+...
+        sum(lognormpdf(data(:,2),starParams(1,6),sigmasquare+tausquare))+...
+        sum(lognormpdf(data(:,3),starParams(1,1)+starParams(1,2)*starParams(1,5)+starParams(1,3)*starParams(1,6),sigmasquare+(starParams(1,2)^2+starParams(1,3)^2)*tausquare))...
+        +logcauchypdf(starParams(1,4),0,2.5)+logcauchypdf(starParams(1,7),0,2.5)+lognormpdf(starParams(1,1),abPrior(1),abPrior(2))+...
+        lognormpdf(starParams(1,2),abPrior(1),abPrior(2))+lognormpdf(starParams(1,3),abPrior(1),abPrior(2));
+    
+    logA = starPosterior-posterior(ii-1);
+    
+    if log(rand)<logA
+        params(ii,:) = starParams;
+        posterior(ii) = starPosterior;
+    else
+        params(ii,:) = params(ii-1,:);
+        posterior(ii) = posterior(ii-1);
+    end
+    
+    if mod(ii,500) == 0 && ii<burnIn
+        meanSubtract = params(ii,:)'-updateMu;
+        updateMu = updateMu+0.01.*meanSubtract;
+        halfSigma = halfSigma+0.01.*(triu((inv(halfSigma))*(halfSigma'*halfSigma+meanSubtract*...
+            meanSubtract')*((inv(halfSigma))')-identity)-halfSigma);
+        sigma = halfSigma'*halfSigma;
+    end
+    
+%     plot(ii,posterior(ii),'.');pause(1/100);hold on;
+end
+
+params = params(burnIn+1:skipRate:end,:);
+params(:,3) = exp(params(:,4));
+params(:,5) = exp(params(:,7));
+
+figure;plot(posterior);
+
+figure;
+paramNames = {'a','b','c','\sigma^2','\mu1','\mu2','\tau^2'};
+for ii=1:numParams
+    subplot(4,2,ii);histogram(params(:,ii));
+    title(sprintf('Posterior: %s',paramNames{ii}));
+    quantile(params(:,ii),[alpha/2,1-alpha/2])
+end
