@@ -71,6 +71,6 @@ for mm = 1:M
     hk(mm,:) = binornd(1,1-pdrop,[1 N]);
     Z(:,:,mm) = spdiags(hk(mm,:)',0,N,N)*squeeze(Y(:,:,mm));
 end
-Z = permute(Z,[1,3,2]);
+% Z = permute(Z,[1,3,2]);
 
 end

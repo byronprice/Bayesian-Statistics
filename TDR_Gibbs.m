@@ -13,7 +13,7 @@ function [W,S,b,D,rank] = TDR_Gibbs(Z,X,hk,rp,numSamples)
 % we need to discover the rank of the W and S for each predictor, to do so
 % we use a greedy algorithm that calculates the AIC
 %
-%INPUTS: Z - neural data, a firing rate tensor (matlab 3-D array) of size N-M-T, 
+%INPUTS: Z - neural data, a firing rate tensor (matlab 3-D array) of size N-T-M, 
 %         for N neurons, M for total trials, T time points per trial
 %        X - a matrix of size M-P, containing trial-dependent predictors,
 %          include a column of ones for condition-independent component
@@ -45,7 +45,8 @@ hk = logical(hk);
 
 newZ = cell(N,1); % convert Z to cell array to get rid of empty space
 for nn=1:N
-    newZ{nn} = squeeze(Z(nn,hk(:,nn),:));
+    tmp = squeeze(Z(nn,:,hk(:,nn)));
+    newZ{nn} = tmp(:);
 end
 Z = newZ;
 
@@ -96,7 +97,7 @@ while aicDiff<0
         [W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,currentRank);
         
         % Gibbs sampler burn-in period
-        Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,Mn,P,T,currentRank);
+        Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,currentRank);
         for iter=1:burnIn
             [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,P,T,currentRank,Wprior);
 %             tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
@@ -179,25 +180,22 @@ end
 end
 
 function [W,Ztilde] = GibbsForW(W,S,D,Ztilde,X,hk,P,N,rp,Wprior)
-% VERY SLOW
 for pp=1:P
     if rp(pp)>0
         for nn=1:N
-            for rr=1:rp(pp)
-                tmp = X(hk(:,nn),pp)*S{pp}(:,rr)';
-                Ztilde{nn} = Ztilde{nn}+tmp*W{pp}(nn,rr);
-                
-                delta = sum(tmp(:).^2);
-                mu = sum(sum(tmp.*Ztilde{nn}))/delta;
-                
-                delta = delta/D(nn);
-                variance = 1/(delta+Wprior(2));
-                mu = (mu*delta)*variance; % assumes Wprior(1) = 0
-                
-                W{pp}(nn,rr) = SimulateNormal(mu,variance);
-                
-                Ztilde{nn} = Ztilde{nn}-tmp*W{pp}(nn,rr);
-            end
+            tmp = kron(X(hk(:,nn),pp),S{pp});
+            Ztilde{nn} = Ztilde{nn}+tmp*W{pp}(nn,:)';
+            
+            precision = (tmp'*tmp)./D(nn)+eye(rp(pp)).*Wprior(2);
+            R = chol(precision);
+            S = InvUpperTri(R);
+            
+            sigma = S*S';
+            mu = (tmp'*Ztilde{nn}*sigma)./D(nn);
+            
+            W{pp}(nn,:) = SimulateMVNormal(mu,sigma);
+            
+            Ztilde{nn} = Ztilde{nn}-tmp*W{pp}(nn,:)';
         end
     end
 end
@@ -207,7 +205,7 @@ function [b,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N)
 
 for nn=1:N
     Ztilde{nn} = Ztilde{nn}+b(nn);
-    mu = mean(Ztilde{nn}(:));
+    mu = mean(Ztilde{nn});
     variance = D(nn)/MnT(nn);
     
     b(nn) = SimulateNormal(mu,variance);
@@ -218,10 +216,8 @@ end
 
 function [D] = GibbsForD(D,Ztilde,MnT,N)
 
-for nn=1:N
-    nutau = sum(Ztilde{nn}(:).^2);
-    
-    D(nn) = SimulateInvChiSquare(max(MnT(nn)-2,0.5),nutau);
+for nn=1:N 
+    D(nn) = SimulateInvChiSquare(max(MnT(nn)-2,1),Ztilde{nn}'*Ztilde{nn});
 end
 end
 
@@ -249,16 +245,19 @@ end
 
 end
 
-function [Ztilde] = ComputeSuffStats(W,S,b,Z,X,hk,N,Mn,P,T,rp)
-
+function [Ztilde] = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp)
+% we calculate the residual at the beginning using the random parameter
+%  settings, then before we update the parameters we add the
+%  current values back in (eliminating them from the residual) and then
+%  subtract the new values to get the full residual again
 Ztilde = cell(N,1);
 
 for nn=1:N
-   Ztilde{nn} = Z{nn}-ones(Mn(nn),T).*b(nn);
+   Ztilde{nn} = Z{nn}-b(nn);
    
    for pp=1:P
        if rp(pp)>0
-          Ztilde{nn} = Ztilde{nn}-X(hk(:,nn),pp)*(W{pp}(nn,:)*S{pp}');
+          Ztilde{nn} = Ztilde{nn}-kron(X(hk(:,nn),pp),S{pp}*W{pp}(nn,:)');
        end
    end
 end
@@ -286,7 +285,74 @@ function [normVal] = SimulateNormal(mu,variance)
 normVal = normrnd(mu,sqrt(variance));
 end
 
+function [normVals] = SimulateMVNormal(mu,sigma)
+
+normVals = mvnrnd(mu,sigma);
+end
+
 function [invchiVal] = SimulateInvChiSquare(nu,tau)
 % tau is nu*tau-squared
 invchiVal = 1./gamrnd(nu/2,2/tau);
+end
+
+% R = chol(sigma); % R is upper triangular
+% S = InvUpperTri(R);
+% Sigma-Inv = S*S';
+function [Inverse] = InvUpperTri(Matrix,Transpose)
+%InvUpperTri.m  Project 1, 1-a
+%   Code to take inverse of an upper triangular matrix
+%Inputs: 
+%        Matrix - an n-by-n upper triangular matrix
+%     OPTIONAL
+%        Tranpose - logical true or false, depending on whether or not you want to
+%            return the inverse (false) or the inverse tranpose (true) ...
+%            defaults to false
+%
+%Outputs: 
+%        Inverse - the inverse (or inverse tranpose) of Matrix
+%
+% Created by: Byron Price
+% 2018/09/21
+
+if istriu(Matrix)==false
+    fprintf('Matrix must be upper triangular\n');
+    Inverse = NaN;
+    return;
+end
+
+if nargin==1
+    Transpose = false;
+end
+
+[n,~] = size(Matrix);
+
+Inverse = [Matrix,eye(n)]; % create extended matrix with identity to the right
+
+% loop through each row and run adjust operator
+for ii=n:-1:1
+    Inverse = Adjust(Inverse,ii);
+end
+
+Inverse = Inverse(:,n+1:end); % left side of extended matrix is now identity, 
+                         % right side is the inverse
+
+if Transpose==true
+    Inverse = Inverse';
+end
+
+end
+
+function [A] = Adjust(A,k)
+% Adjust operator, uses the k-th row of A as way to eliminate values in the
+% other rows of its left-hand side
+
+A(k,:) = A(k,:)./A(k,k);
+
+for ii=1:k-1
+   A(ii,:) = A(ii,:)-A(ii,k).*A(k,:);
+end
+
+% A(1:k-1,:) = A(1:k-1,:)-A(1:k-1,k)*A(k,:); % matrix operation to perform
+                              % same function as for loop above
+
 end
