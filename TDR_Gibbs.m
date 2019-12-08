@@ -99,7 +99,7 @@ while aicDiff<0
         % Gibbs sampler burn-in period
         Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,currentRank);
         for iter=1:burnIn
-            [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,P,T,currentRank,Wprior);
+            [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior);
 %             tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
 %             plot(iter,tmplikelihood,'.');pause(1/100);hold on;
         end
@@ -113,7 +113,7 @@ while aicDiff<0
             count = 0;
             % Gibbs sampler for real
             for iter=1:numIter
-                [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,P,T,currentRank,Wprior);
+                [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior);
                 
                 if mod(iter,numSkip)==0
                     count = count+1;
@@ -151,33 +151,42 @@ D = finalD;
 rank = rp;
 end
 
-function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,X,hk,rp)
+function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp)
 % probably could speed up more since precision is a diagonal matrix
-identity = eye(T);
+oneVec = ones(T,1);
+identity = diag(oneVec);
 for pp=1:P
     if rp(pp)>0
         for rr=1:rp(pp)
             muS = zeros(T,1);
             precisionS = zeros(T,T);
             for nn=1:N
-                tmp = kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity);
+                
                 Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
                 
-                muS = muS+tmp'*Ztilde{nn}./D(nn);
+                % as written in the main text, but it's slow due to many
+                % multiplications by zero
+%                 muS = muS+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity)'*Ztilde{nn}./D(nn);
+                muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
                 
-                tmp = (X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr));
-                precisionS = precisionS+(tmp.*identity)./D(nn);
+                precisionS = precisionS+...
+                    ((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr)).*identity)./D(nn);
             end
             % for the general case where the precision is not diagonal
 %             R = chol(precisionS);
 %             Rinv = InvUpperTri(R);
 %             
 %             sigma = Rinv*Rinv';
-
-            sigma = diag(1./diag(precisionS));
-            mu = sigma*muS;
+% 
+%             sigma = diag(1./diag(precisionS)); 
+%             mu = sigma*muS;
             
-            S{pp}(:,rr) = SimulateMVNormal(mu,sigma)';
+%             S{pp}(:,rr) = SimulateMVNormal(mu,sigma)';
+
+            sigma = 1./diag(precisionS); 
+            mu = diag(sigma)*muS;
+            
+            S{pp}(:,rr) = SimulateNormal(mu,sigma);
             
             for nn=1:N
                 Ztilde{nn} = Ztilde{nn}-...
@@ -191,11 +200,12 @@ end
 function [W,Ztilde] = GibbsForW(W,S,D,Ztilde,X,hk,P,N,rp,Wprior)
 for pp=1:P
     if rp(pp)>0
+        identity = eye(rp(pp));
         for nn=1:N
             tmp = kron(X(hk(:,nn),pp),S{pp});
             Ztilde{nn} = Ztilde{nn}+tmp*W{pp}(nn,:)';
             
-            precision = (tmp'*tmp)./D(nn)+eye(rp(pp)).*Wprior(2);
+            precision = (tmp'*tmp)./D(nn)+identity.*Wprior(2);
             R = chol(precision);
             Rinv = InvUpperTri(R);
             
@@ -230,9 +240,9 @@ for nn=1:N
 end
 end
 
-function [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,P,T,rp,Wprior)
+function [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior)
 
-[newS,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,X,hk,rp);
+[newS,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp);
 [newW,Ztilde] = GibbsForW(W,newS,D,Ztilde,X,hk,P,N,rp,Wprior);
 [newB,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N);
 [newD] = GibbsForD(D,Ztilde,MnT,N);
