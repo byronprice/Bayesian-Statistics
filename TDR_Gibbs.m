@@ -37,7 +37,7 @@ function [W,S,b,D,rank] = TDR_Gibbs(Z,X,hk,rp,numSamples)
 %
 %Created: 2019/12/06
 % Byron Price
-%Updated: 2019/12/06
+%Updated: 2019/12/08
 % By: Byron Price
 
 [N,T,M] = size(Z);
@@ -46,7 +46,7 @@ hk = logical(hk);
 newZ = cell(N,1); % convert Z to cell array to get rid of empty space
 for nn=1:N
     tmp = squeeze(Z(nn,:,hk(:,nn)));
-    newZ{nn} = tmp(:);
+    newZ{nn} = tmp(:); % vec operator
 end
 Z = newZ;
 
@@ -61,9 +61,6 @@ if nargin<4
 elseif nargin<5
     numSamples = 1000;
 end
-
-finalW = cell(numSamples,1);finalS = cell(numSamples,1);
-finalB = zeros(N,numSamples);finalD = zeros(N,numSamples);
 
 % PRIORS
 Wprior = [0,1]; % mean and variance for normal
@@ -82,7 +79,6 @@ numSkip = 10;numIter = numSkip*numSamples;
 
 % GREEDY ALGORITHM TO CALCULATE OPTIMAL RANKS
 while aicDiff<0
-    loglikelihood = zeros(numSamples,1);
     
     acrossPAIC = currentAIC;check = 0;
     for changeRank=P:-1:1
@@ -90,43 +86,34 @@ while aicDiff<0
         
         numParams = N*2;
         for pp=1:P
-            numParams = numParams+currentRank(pp)*N+currentRank(pp)*T;
+            numParams = numParams+currentRank(pp)*(N+T);
         end
         
         % semi-random initialization
         [W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,currentRank);
         
-        % Gibbs sampler burn-in period
+        % Gibbs sampler burn-in period, to get AIC
         Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,currentRank);
+        likelihood = GetLikelihood(Ztilde,D,N,MnT);
         for iter=1:burnIn
             [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior);
-%             tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
-%             plot(iter,tmplikelihood,'.');pause(1/100);hold on;
+            
+            if mod(iter,numSkip)==0
+                tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
+                if tmplikelihood>likelihood
+                    likelihood = tmplikelihood;
+                end
+                %             plot(iter,tmplikelihood,'.');pause(1/100);hold on;
+            end
         end
         
-        tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
-        tmpAIC = 2*numParams-2*tmplikelihood;
+        tmpAIC = 2*numParams-2*likelihood;
         
         if tmpAIC<=acrossPAIC
             check = 1;
             bestRank = currentRank;
-            count = 0;
-            % Gibbs sampler for real
-            for iter=1:numIter
-                [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior);
-                
-                if mod(iter,numSkip)==0
-                    count = count+1;
-                    %             Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,Mn,P)
-                    loglikelihood(count) = GetLikelihood(Ztilde,D,N,MnT);
-                    
-                    finalW{count} = W;
-                    finalS{count} = S;
-                    finalB(:,count) = b;
-                    finalD(:,count) = D;
-                end
-            end
-            acrossPAIC = 2*numParams-2*max(loglikelihood);
+            
+            acrossPAIC = tmpAIC;
         end
     end
     if check == 1
@@ -134,13 +121,38 @@ while aicDiff<0
         fprintf('Current Rank: ');
         fprintf('%g',rp');
         fprintf('\n');
-        AIC = 2*numParams-2*max(loglikelihood);
+        AIC = acrossPAIC;
         aicDiff = AIC-currentAIC;
         
         currentAIC = AIC;
     else
         aicDiff = Inf;
         break;
+    end
+end
+
+finalW = cell(numSamples,1);finalS = cell(numSamples,1);
+finalB = zeros(N,numSamples);finalD = zeros(N,numSamples);
+
+[W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,rp);
+
+% Gibbs sampler burn-in period
+Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp);
+for iter=1:burnIn
+    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior);
+end
+count = 0;
+% Gibbs sampler for real
+for iter=1:numIter
+    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior);
+    
+    if mod(iter,numSkip)==0
+        count = count+1;
+        
+        finalW{count} = W;
+        finalS{count} = S;
+        finalB(:,count) = b;
+        finalD(:,count) = D;
     end
 end
 
@@ -153,8 +165,7 @@ end
 
 function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp)
 % probably could speed up more since precision is a diagonal matrix
-oneVec = ones(T,1);
-identity = diag(oneVec);
+identity = eye(T);
 for pp=1:P
     if rp(pp)>0
         for rr=1:rp(pp)
@@ -170,7 +181,7 @@ for pp=1:P
                 muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
                 
                 precisionS = precisionS+...
-                    ((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr)).*identity)./D(nn);
+                    (((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr))).*identity)./D(nn);
             end
             % for the general case where the precision is not diagonal
 %             R = chol(precisionS);
@@ -257,9 +268,8 @@ function [loglikelihood] = GetLikelihood(Ztilde,D,N,MnT)
 loglikelihood = 0;
 
 for nn=1:N
-    tmp = Ztilde{nn}(:).^2;
     loglikelihood = loglikelihood-log(2*pi*D(nn))*(MnT(nn)/2)-...
-        (1/(2*D(nn))).*sum(tmp);
+        (1/(2*D(nn))).*sum(Ztilde{nn}.^2);
 end
 
 end
