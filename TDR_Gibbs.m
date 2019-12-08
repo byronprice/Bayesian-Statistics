@@ -40,7 +40,7 @@ function [W,S,b,D,rank] = TDR_Gibbs(Z,X,hk,rp,numSamples)
 %Updated: 2019/12/06
 % By: Byron Price
 
-[N,M,T] = size(Z);
+[N,T,M] = size(Z);
 hk = logical(hk);
 
 newZ = cell(N,1); % convert Z to cell array to get rid of empty space
@@ -131,6 +131,9 @@ while aicDiff<0
     end
     if check == 1
         rp = bestRank;
+        fprintf('Current Rank: ');
+        fprintf('%g',rp');
+        fprintf('\n');
         AIC = 2*numParams-2*max(loglikelihood);
         aicDiff = AIC-currentAIC;
         
@@ -149,30 +152,36 @@ rank = rp;
 end
 
 function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,X,hk,rp)
-% REALLY SUPER SSLLLOOOOOOWWWWWW
+% probably could speed up more since precision is a diagonal matrix
+identity = eye(T);
 for pp=1:P
     if rp(pp)>0
-        for tt=1:T
-            for rr=1:rp(pp)
-                muN = zeros(N,1);
-                deltaN = zeros(N,1);
-                for nn=1:N
-                    tmp = X(hk(:,nn),pp)*W{pp}(nn,rr);
-                    Ztilde{nn}(:,tt) = Ztilde{nn}(:,tt)+tmp*S{pp}(tt,rr);
-                    
-                    deltaN(nn) = sum(tmp(:).^2);
-                    muN(nn) = sum(tmp.*Ztilde{nn}(:,tt))/deltaN(nn);
-                    deltaN(nn) = deltaN(nn)/D(nn);
-                end
-                variance = 1/(sum(deltaN));
-                mu = sum(deltaN.*muN)*variance;
+        for rr=1:rp(pp)
+            muS = zeros(T,1);
+            precisionS = zeros(T,T);
+            for nn=1:N
+                tmp = kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity);
+                Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
                 
-                S{pp}(tt,rr) = SimulateNormal(mu,variance);
+                muS = muS+tmp'*Ztilde{nn}./D(nn);
                 
-                for nn=1:N
-                    Ztilde{nn}(:,tt) = Ztilde{nn}(:,tt)-...
-                        X(hk(:,nn),pp)*W{pp}(nn,rr)*S{pp}(tt,rr);
-                end
+                tmp = (X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr));
+                precisionS = precisionS+(tmp.*identity)./D(nn);
+            end
+            % for the general case where the precision is not diagonal
+%             R = chol(precisionS);
+%             Rinv = InvUpperTri(R);
+%             
+%             sigma = Rinv*Rinv';
+
+            sigma = diag(1./diag(precisionS));
+            mu = sigma*muS;
+            
+            S{pp}(:,rr) = SimulateMVNormal(mu,sigma)';
+            
+            for nn=1:N
+                Ztilde{nn} = Ztilde{nn}-...
+                    kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
             end
         end
     end
@@ -188,10 +197,10 @@ for pp=1:P
             
             precision = (tmp'*tmp)./D(nn)+eye(rp(pp)).*Wprior(2);
             R = chol(precision);
-            S = InvUpperTri(R);
+            Rinv = InvUpperTri(R);
             
-            sigma = S*S';
-            mu = (tmp'*Ztilde{nn}*sigma)./D(nn);
+            sigma = Rinv*Rinv';
+            mu = (sigma*tmp'*Ztilde{nn})./D(nn);
             
             W{pp}(nn,:) = SimulateMVNormal(mu,sigma);
             
