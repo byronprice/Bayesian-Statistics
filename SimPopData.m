@@ -21,4 +21,7 @@ for k = 1:N
         noisek = diag(1./sqrt(d))*randn(n,T);
     end
     Y(:,:,k) = kronmult({eye(n),Xsamp(k,:)},BB)+ noisek;
+    % sn_ratio = snr(kronmult({eye(n),Xsamp(k,:)},BB),noisek); % in
+    %  decibels
+    % as a ratio 10^(sn_ratio/10)
 end
