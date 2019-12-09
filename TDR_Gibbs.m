@@ -22,7 +22,8 @@ function [W,S,b,D,rank] = TDR_Gibbs(Z,X,hk,rp,numSamples)
 %           on which trials
 %  (optional)
 %        rp - initial rank of W and S matrices for each covariate, a
-%          vector of size P-1, defaults to a vector of zeros 
+%          vector of size P-1, defaults to a vector of zeros with 1 in
+%          final position (for condition-independent covariate)
 %        numSamples - number of samples to generate from posterior,
 %           defaults to 1000
 %
@@ -52,11 +53,28 @@ Z = newZ;
 
 P = size(X,2);
 
+% create matrix to control for case that neuron has no exemplars of a
+%   particular covariate
+Xp = zeros(N,P);
+
+tolerance = 1e-6;
+for nn=1:N
+   for pp=1:P
+       if sum(abs(X(hk(:,nn),pp)))>tolerance
+           Xp(nn,pp) = 1;
+       end
+   end
+end
+
+Np = sum(Xp,1);
+
+Xp = logical(Xp);
+
 Mn = sum(hk,1); % total trials per neuron
 MnT = Mn.*T;
 
 if nargin<4
-    rp = zeros(P,1);
+    rp = zeros(P,1);rp(P) = 1;
     numSamples = 1000;
 elseif nargin<5
     numSamples = 1000;
@@ -64,6 +82,8 @@ end
 
 % PRIORS
 Wprior = [0,1]; % mean and variance for normal
+
+[Winit,Sinit,~,~] = InitializeParams(Z,N,P,T,Wprior,rp);
 
 % everything else gets a flat prior
 % Dprior = [0,0]; % nu and tau-square for scaled inverse chi square 
@@ -73,8 +93,10 @@ Wprior = [0,1]; % mean and variance for normal
 currentAIC = Inf;
 aicDiff = -Inf;
 bestRank = rp;
+Wbest = Winit;
+Sbest = Sinit;
 
-burnIn = 5e3;
+burnIn = 1e4;
 numSkip = 10;numIter = numSkip*numSamples;
 
 % GREEDY ALGORITHM TO CALCULATE OPTIMAL RANKS
@@ -86,24 +108,24 @@ while aicDiff<0
         
         numParams = N*2;
         for pp=1:P
-            numParams = numParams+currentRank(pp)*(N+T);
+            numParams = numParams+currentRank(pp)*(Np(pp)+T);
         end
         
         % semi-random initialization
-        [W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,currentRank);
+        [W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,currentRank,Winit,Sinit);
         
         % Gibbs sampler burn-in period, to get AIC
-        Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,currentRank);
+        Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,currentRank,Xp);
         likelihood = GetLikelihood(Ztilde,D,N,MnT);
         for iter=1:burnIn
-            [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior);
+            [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior,Xp);
             
             if mod(iter,numSkip)==0
                 tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
                 if tmplikelihood>likelihood
                     likelihood = tmplikelihood;
                 end
-                %             plot(iter,tmplikelihood,'.');pause(1/100);hold on;
+%                 plot(iter,tmplikelihood,'.');pause(1/100);hold on;
             end
         end
         
@@ -114,6 +136,9 @@ while aicDiff<0
             bestRank = currentRank;
             
             acrossPAIC = tmpAIC;
+            
+            Wbest = W;
+            Sbest = S;
         end
     end
     if check == 1
@@ -125,6 +150,9 @@ while aicDiff<0
         aicDiff = AIC-currentAIC;
         
         currentAIC = AIC;
+        
+        Winit = Wbest;
+        Sinit = Sbest;
     else
         aicDiff = Inf;
         break;
@@ -134,17 +162,17 @@ end
 finalW = cell(numSamples,1);finalS = cell(numSamples,1);
 finalB = zeros(N,numSamples);finalD = zeros(N,numSamples);
 
-[W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,rp);
+[W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,rp,Winit,Sinit);
 
 % Gibbs sampler burn-in period
-Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp);
+Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp,Xp);
 for iter=1:burnIn
-    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior);
+    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp);
 end
 count = 0;
 % Gibbs sampler for real
 for iter=1:numIter
-    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior);
+    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp);
     
     if mod(iter,numSkip)==0
         count = count+1;
@@ -163,7 +191,7 @@ D = finalD;
 rank = rp;
 end
 
-function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp)
+function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp)
 % probably could speed up more since precision is a diagonal matrix
 identity = eye(T);
 for pp=1:P
@@ -172,16 +200,17 @@ for pp=1:P
             muS = zeros(T,1);
             precisionS = zeros(T,T);
             for nn=1:N
-                
-                Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
-                
-                % as written in the main text, but it's slow due to many
-                % multiplications by zero
-%                 muS = muS+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity)'*Ztilde{nn}./D(nn);
-                muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
-                
-                precisionS = precisionS+...
-                    (((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr))).*identity)./D(nn);
+                if Xp(nn,pp)
+                    Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
+                    
+                    % as written in the main text, but it's slow due to many
+                    %  multiplications by zero
+                    %                 muS = muS+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity)'*Ztilde{nn}./D(nn);
+                    muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
+                    
+                    precisionS = precisionS+...
+                        (((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr))).*identity)./D(nn);
+                end
             end
             % for the general case where the precision is not diagonal
 %             R = chol(precisionS);
@@ -208,24 +237,27 @@ for pp=1:P
 end
 end
 
-function [W,Ztilde] = GibbsForW(W,S,D,Ztilde,X,hk,P,N,rp,Wprior)
+function [W,Ztilde] = GibbsForW(W,S,D,Ztilde,X,hk,P,N,rp,Wprior,Xp)
+
 for pp=1:P
     if rp(pp)>0
         identity = eye(rp(pp));
         for nn=1:N
-            tmp = kron(X(hk(:,nn),pp),S{pp});
-            Ztilde{nn} = Ztilde{nn}+tmp*W{pp}(nn,:)';
-            
-            precision = (tmp'*tmp)./D(nn)+identity.*Wprior(2);
-            R = chol(precision);
-            Rinv = InvUpperTri(R);
-            
-            sigma = Rinv*Rinv';
-            mu = (sigma*tmp'*Ztilde{nn})./D(nn);
-            
-            W{pp}(nn,:) = SimulateMVNormal(mu,sigma);
-            
-            Ztilde{nn} = Ztilde{nn}-tmp*W{pp}(nn,:)';
+            if Xp(nn,pp)
+                tmp = kron(X(hk(:,nn),pp),S{pp});
+                Ztilde{nn} = Ztilde{nn}+tmp*W{pp}(nn,:)';
+                
+                precision = (tmp'*tmp)./D(nn)+identity.*Wprior(2);
+                R = chol(precision);
+                Rinv = InvUpperTri(R);
+                
+                sigma = Rinv*Rinv';
+                mu = (sigma*tmp'*Ztilde{nn})./D(nn);
+                
+                W{pp}(nn,:) = SimulateMVNormal(mu,sigma);
+                
+                Ztilde{nn} = Ztilde{nn}-tmp*W{pp}(nn,:)';
+            end
         end
     end
 end
@@ -251,10 +283,10 @@ for nn=1:N
 end
 end
 
-function [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior)
+function [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp)
 
-[newS,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp);
-[newW,Ztilde] = GibbsForW(W,newS,D,Ztilde,X,hk,P,N,rp,Wprior);
+[newS,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp);
+[newW,Ztilde] = GibbsForW(W,newS,D,Ztilde,X,hk,P,N,rp,Wprior,Xp);
 [newB,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N);
 [newD] = GibbsForD(D,Ztilde,MnT,N);
 
@@ -266,15 +298,15 @@ end
 
 function [loglikelihood] = GetLikelihood(Ztilde,D,N,MnT)
 loglikelihood = 0;
-
+twopi = 2*pi;
 for nn=1:N
-    loglikelihood = loglikelihood-log(2*pi*D(nn))*(MnT(nn)/2)-...
-        (1/(2*D(nn))).*sum(Ztilde{nn}.^2);
+    loglikelihood = loglikelihood-log(twopi*D(nn))*(MnT(nn)/2)-...
+        (1/(2*D(nn)))*(Ztilde{nn}'*Ztilde{nn});
 end
 
 end
 
-function [Ztilde] = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp)
+function [Ztilde] = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp,Xp)
 % we calculate the residual at the beginning using the random parameter
 %  settings, then before we update the parameters we add the
 %  current values back in (eliminating them from the residual) and then
@@ -285,7 +317,7 @@ for nn=1:N
    Ztilde{nn} = Z{nn}-b(nn);
    
    for pp=1:P
-       if rp(pp)>0
+       if rp(pp)>0 && Xp(nn,pp)
           Ztilde{nn} = Ztilde{nn}-kron(X(hk(:,nn),pp),S{pp}*W{pp}(nn,:)');
        end
    end
@@ -293,7 +325,7 @@ end
 
 end
 
-function [W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,rp)
+function [W,S,b,D] = InitializeParams(Z,N,P,T,Wprior,rp,Winit,Sinit)
 W = cell(P,1);S = cell(P,1);
 b = zeros(N,1);D = zeros(N,1);
 
@@ -303,9 +335,22 @@ for nn=1:N
    D(nn) = var(reduceData(:));
 end
 
-for pp=1:P
-   W{pp} = normrnd(Wprior(1),sqrt(Wprior(2)),[N,rp(pp)]);
-   S{pp} = normrnd(0,1,[T,rp(pp)]);
+if nargin<=6
+    for pp=1:P
+        W{pp} = normrnd(Wprior(1),sqrt(Wprior(2)),[N,rp(pp)]);
+        S{pp} = normrnd(0,1,[T,rp(pp)]);
+    end
+else
+    for pp=1:P
+        oldRank = size(Winit{pp},2);
+        if rp(pp)==oldRank
+            W{pp} = Winit{pp};
+            S{pp} = Sinit{pp};
+        elseif rp(pp)>oldRank
+            W{pp} = [Winit{pp},normrnd(Wprior(1),sqrt(Wprior(2)),[N,1])];
+            S{pp} = [Sinit{pp},normrnd(0,1,[T,1])];
+        end
+    end
 end
 end
 
