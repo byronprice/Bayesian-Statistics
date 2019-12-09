@@ -1,12 +1,13 @@
-function [W,S,b,D,rank,likelihood] = TDR_Gibbs(Z,X,hk,rp,numSamples)
-% TDR_Gibbs.m
+function [W,S,b,D,rank,likelihood] = NonNegTDR_Gibbs(Z,X,hk,rp,numSamples)
+% NonNegTDR_Gibbs.m
 %  Gibbs sampler for dimensionality reduction model on neural data, based on
 %   "Model-Based Targeted Dimensionality Reduction for Neuronal Population
-%   Data" Aoi & Pillow 2018
+%   Data" Aoi & Pillow 2018 ... constrains the time-varying bases to be
+%   non-negative
 %
-% model is Z_(nmt) = b_n + x_m1*(W_n1*S_t1) + ... + x_mp*(W_nP*S_tP) + noise
+% model is Z_(nmt) = b_n + x_m1*(W_n1*exp(S_t1)) + ... + x_mp*(W_nP*exp(S_tP)) + noise
 %  so, this is a linear regression for each neuron, but for each predictor,
-%  x_mp, the neurons share basis functions S
+%  x_mp, the neurons share basis functions exp(S)
 % noise is Guassian-independent for each neuron and timepoint
 %
 % we need to discover the rank of the W and S for each predictor, to do so
@@ -191,8 +192,6 @@ S = finalS;
 b = finalB;
 D = finalD;
 rank = rp;
-
-likelihood = GetLikelihood(Ztilde,D,N,MnT);
 end
 
 function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp)
@@ -205,11 +204,11 @@ for pp=1:P
             precisionS = zeros(T,T);
             for nn=1:N
                 if Xp(nn,pp)
-                    Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
+                    Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*exp(S{pp}(:,rr)));
                     
                     % as written in the main text, but it's slow due to many
                     %  multiplications by zero
-                    %                 muS = muS+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity)'*Ztilde{nn}./D(nn);
+                    %         muS = muS+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity)'*Ztilde{nn}./D(nn);
                     muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
                     
                     precisionS = precisionS+...
@@ -226,15 +225,14 @@ for pp=1:P
 %             mu = sigma*muS;
             
 %             S{pp}(:,rr) = SimulateMVNormal(mu,sigma)';
-
             sigma = 1./diag(precisionS); 
             mu = diag(sigma)*muS;
             
-            S{pp}(:,rr) = SimulateNormal(mu,sigma);
+            S{pp}(:,rr) = log(max(SimulateNormal(mu,sigma),1e-9));
             
             for nn=1:N
                 Ztilde{nn} = Ztilde{nn}-...
-                    kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
+                    kron(X(hk(:,nn),pp),W{pp}(nn,rr)*exp(S{pp}(:,rr)));
             end
         end
     end
@@ -248,7 +246,7 @@ for pp=1:P
         identity = eye(rp(pp));
         for nn=1:N
             if Xp(nn,pp)
-                tmp = kron(X(hk(:,nn),pp),S{pp});
+                tmp = kron(X(hk(:,nn),pp),exp(S{pp}));
                 Ztilde{nn} = Ztilde{nn}+tmp*W{pp}(nn,:)';
                 
                 precision = (tmp'*tmp)./D(nn)+identity.*Wprior(2);
@@ -322,7 +320,7 @@ for nn=1:N
    
    for pp=1:P
        if rp(pp)>0 && Xp(nn,pp)
-          Ztilde{nn} = Ztilde{nn}-kron(X(hk(:,nn),pp),S{pp}*W{pp}(nn,:)');
+          Ztilde{nn} = Ztilde{nn}-kron(X(hk(:,nn),pp),exp(S{pp})*W{pp}(nn,:)');
        end
    end
 end
