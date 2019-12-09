@@ -422,11 +422,11 @@ function [A] = Adjust(A,k)
 
 A(k,:) = A(k,:)./A(k,k);
 
-for ii=1:k-1
-   A(ii,:) = A(ii,:)-A(ii,k).*A(k,:);
-end
+% for ii=1:k-1
+%    A(ii,:) = A(ii,:)-A(ii,k).*A(k,:);
+% end
 
-% A(1:k-1,:) = A(1:k-1,:)-A(1:k-1,k)*A(k,:); % matrix operation to perform
+A(1:k-1,:) = A(1:k-1,:)-A(1:k-1,k)*A(k,:); % matrix operation to perform
                               % same function as for loop above
 
 end
