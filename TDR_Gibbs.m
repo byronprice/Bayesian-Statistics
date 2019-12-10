@@ -131,7 +131,7 @@ while aicDiff<0
                 
                 likelihoodDiff = tmplikelihood-likelihood;
                 likelihood = tmplikelihood;
-%                 plot(iter,tmplikelihood,'.');pause(1/100);hold on;
+                plot(iter,tmplikelihood,'.');pause(1/100);hold on;
             end
             
             if likelihoodDiff<tolerance
@@ -216,20 +216,20 @@ function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp,CA)
 % identity = diag(oneVec);
 for pp=1:P
     if rp(pp)>0
-        muS = zeros(T,rp(pp));
+        muS = zeros(rp(pp),T);
         precisionV = zeros(rp(pp),rp(pp));
 
         for nn=1:N
             if Xp(nn,pp)
                 Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),S{pp}*W{pp}(nn,:)');
-                
-                muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,:)/D(nn));
-                precisionV = precisionV+W{pp}(nn,:)'*W{pp}(nn,:).*...
-                    (X(hk(:,nn),pp)'*X(hk(:,nn),pp)/D(nn));
+                constant = (X(hk(:,nn),pp)'*X(hk(:,nn),pp)/D(nn));
+                muS = muS+constant*W{pp}(nn,:)'*(X(hk(:,nn),pp)\reshape(Ztilde{nn},[T,Mn(nn)])');
+
+                precisionV = precisionV+W{pp}(nn,:)'*W{pp}(nn,:).*constant;
             end
         end
         
-        M = precisionV\muS';
+        M = precisionV\muS;
         
         if CA
             S{pp} = M';
