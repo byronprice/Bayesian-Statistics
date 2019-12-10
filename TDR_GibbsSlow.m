@@ -1,4 +1,4 @@
-function [W,S,b,D,rank,likelihood] = TDR_Gibbs(Z,X,hk,rp,numSamples)
+function [W,S,b,D,rank,likelihood] = TDR_GibbsSlow(Z,X,hk,rp,numSamples)
 % TDR_Gibbs.m
 %  Gibbs sampler for dimensionality reduction model on neural data, based on
 %   "Model-Based Targeted Dimensionality Reduction for Neuronal Population
@@ -40,7 +40,7 @@ function [W,S,b,D,rank,likelihood] = TDR_Gibbs(Z,X,hk,rp,numSamples)
 %
 %Created: 2019/12/06
 % Byron Price
-%Updated: 2019/12/10
+%Updated: 2019/12/08
 % By: Byron Price
 
 [N,T,M] = size(Z);
@@ -212,34 +212,52 @@ end
 
 function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp,CA)
 % assumes precision is diagonal
-% oneVec = ones(T,1);
-% identity = diag(oneVec);
+% identity = eye(T);
+oneVec = ones(T,1);
 for pp=1:P
     if rp(pp)>0
-        muS = zeros(T,rp(pp));
-        precisionV = zeros(rp(pp),rp(pp));
-
-        for nn=1:N
-            if Xp(nn,pp)
-                Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),S{pp}*W{pp}(nn,:)');
-                
-                muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,:)/D(nn));
-                precisionV = precisionV+W{pp}(nn,:)'*W{pp}(nn,:).*...
-                    (X(hk(:,nn),pp)'*X(hk(:,nn),pp)/D(nn));
+        for rr=1:rp(pp)
+            muS = zeros(T,1);
+            precisionS = zeros(T,1);
+            for nn=1:N
+                if Xp(nn,pp)
+                    Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
+                    
+                    % as written in the main text, but it's slow due to many
+                    %  multiplications by zero
+                    %                 muS = muS+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*identity)'*Ztilde{nn}./D(nn);
+                    muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
+                    
+                    precisionS = precisionS+...
+                        (((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr))).*oneVec)./D(nn);
+                    %  multiply by identity to get precision matrix, rather
+                    %  than precision diagonal
+                end
             end
-        end
-        
-        M = precisionV\muS';
-        
-        if CA
-            S{pp} = M';
-        else
-            S{pp} = SimulateMatrixNormal(M',precisionV,T,rp(pp));
-        end
-        
-        for nn=1:N
-            Ztilde{nn} = Ztilde{nn}-...
-                kron(X(hk(:,nn),pp),S{pp}*W{pp}(nn,:)');
+            % for the general case where the precision is not diagonal
+%             R = chol(precisionS);
+%             Rinv = InvUpperTri(R);
+%             
+%             sigma = Rinv*Rinv';
+% 
+%             sigma = diag(1./diag(precisionS)); 
+%             mu = sigma*muS;
+            
+%             S{pp}(:,rr) = SimulateMVNormal(mu,sigma)';
+
+            sigma = 1./precisionS; 
+            mu = diag(sigma)*muS;
+            
+            if CA
+                S{pp}(:,rr) = mu;
+            else
+                S{pp}(:,rr) = SimulateNormal(mu,sigma);
+            end
+            
+            for nn=1:N
+                Ztilde{nn} = Ztilde{nn}-...
+                    kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
+            end
         end
     end
 end
@@ -393,18 +411,6 @@ end
 function [normVals] = SimulateMVNormal(mu,sigma)
 
 normVals = mvnrnd(mu,sigma);
-end
-
-function [normVals] = SimulateMatrixNormal(M,Vinv,T,R)
-% assume Uinv is identity
-Binv = chol(Vinv,'lower');
-B = InvUpperTri(Binv')';
-
-X = normrnd(0,1,[T,R]);
-
-normVals = M+X*B; % would be M+A*X*B;
-% Ainv = chol(Uinv);
-% A = InvUpperTri(Ainv);
 end
 
 function [invchiVal] = SimulateInvChiSquare(nu,tau)
