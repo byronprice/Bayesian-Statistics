@@ -98,8 +98,10 @@ bestRank = rp;
 Wbest = Winit;
 Sbest = Sinit;
 
-burnIn = 1e4;
+burnIn = 5e4;
 numSkip = 10;numIter = numSkip*numSamples;
+CA = 1; % run coordinate ascent to maximize likelihood
+tolerance = 1e-4; % when to stop coordinate ascent based on likelihood difference
 
 % GREEDY ALGORITHM TO CALCULATE OPTIMAL RANKS
 while aicDiff<0
@@ -118,16 +120,20 @@ while aicDiff<0
         
         % Gibbs sampler burn-in period, to get AIC
         Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,currentRank,Xp);
-        likelihood = GetLikelihood(Ztilde,D,N,MnT);
+        likelihood = GetLikelihood(Ztilde,D,N,MnT);likelihoodDiff = Inf;
         for iter=1:burnIn
-            [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior,Xp);
+            [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,currentRank,Wprior,Xp,CA);
             
             if mod(iter,numSkip)==0
                 tmplikelihood = GetLikelihood(Ztilde,D,N,MnT);
-                if tmplikelihood>likelihood
-                    likelihood = tmplikelihood;
-                end
+                
+                likelihoodDiff = tmplikelihood-likelihood;
+                likelihood = tmplikelihood;
 %                 plot(iter,tmplikelihood,'.');pause(1/100);hold on;
+            end
+            
+            if likelihoodDiff<tolerance
+                break;
             end
         end
         
@@ -161,6 +167,7 @@ while aicDiff<0
     end
 end
 
+GS = 0; % run sampler, rather than coordinate ascent
 finalW = cell(numSamples,1);finalS = cell(numSamples,1);
 finalB = zeros(N,numSamples);finalD = zeros(N,numSamples);
 
@@ -169,12 +176,12 @@ finalB = zeros(N,numSamples);finalD = zeros(N,numSamples);
 % Gibbs sampler burn-in period
 Ztilde = ComputeSuffStats(W,S,b,Z,X,hk,N,P,rp,Xp);
 for iter=1:burnIn
-    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp);
+    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp,GS);
 end
 count = 0;
 % Gibbs sampler for real
 for iter=1:numIter
-    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp);
+    [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp,GS);
     
     if mod(iter,numSkip)==0
         count = count+1;
@@ -195,14 +202,15 @@ rank = rp;
 likelihood = GetLikelihood(Ztilde,D,N,MnT);
 end
 
-function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp)
-% probably could speed up more since precision is a diagonal matrix
-identity = eye(T);
+function [S,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp,CA)
+% assumes precision is diagonal
+% identity = eye(T);
+oneVec = ones(T,1);
 for pp=1:P
     if rp(pp)>0
         for rr=1:rp(pp)
             muS = zeros(T,1);
-            precisionS = zeros(T,T);
+            precisionS = zeros(T,1);
             for nn=1:N
                 if Xp(nn,pp)
                     Ztilde{nn} = Ztilde{nn}+kron(X(hk(:,nn),pp),W{pp}(nn,rr)*S{pp}(:,rr));
@@ -213,7 +221,9 @@ for pp=1:P
                     muS = muS+reshape(Ztilde{nn},[T,Mn(nn)])*X(hk(:,nn),pp)*(W{pp}(nn,rr)/D(nn));
                     
                     precisionS = precisionS+...
-                        (((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr))).*identity)./D(nn);
+                        (((X(hk(:,nn),pp)*W{pp}(nn,rr))'*(X(hk(:,nn),pp)*W{pp}(nn,rr))).*oneVec)./D(nn);
+                    %  multiply by identity to get precision matrix, rather
+                    %  than precision diagonal
                 end
             end
             % for the general case where the precision is not diagonal
@@ -227,10 +237,14 @@ for pp=1:P
             
 %             S{pp}(:,rr) = SimulateMVNormal(mu,sigma)';
 
-            sigma = 1./diag(precisionS); 
+            sigma = 1./precisionS; 
             mu = diag(sigma)*muS;
             
-            S{pp}(:,rr) = SimulateNormal(mu,sigma);
+            if CA
+                S{pp}(:,rr) = mu;
+            else
+                S{pp}(:,rr) = SimulateNormal(mu,sigma);
+            end
             
             for nn=1:N
                 Ztilde{nn} = Ztilde{nn}-...
@@ -241,7 +255,7 @@ for pp=1:P
 end
 end
 
-function [W,Ztilde] = GibbsForW(W,S,D,Ztilde,X,hk,P,N,rp,Wprior,Xp)
+function [W,Ztilde] = GibbsForW(W,S,D,Ztilde,X,hk,P,N,rp,Wprior,Xp,CA)
 
 for pp=1:P
     if rp(pp)>0
@@ -258,7 +272,13 @@ for pp=1:P
                 sigma = Rinv*Rinv';
                 mu = (sigma*tmp'*Ztilde{nn})./D(nn);
                 
-                W{pp}(nn,:) = SimulateMVNormal(mu,sigma);
+                if CA
+                    % coordinate ascent
+                    W{pp}(nn,:) = mu';
+                else
+                    % gibbs, random sample
+                    W{pp}(nn,:) = SimulateMVNormal(mu,sigma);
+                end
                 
                 Ztilde{nn} = Ztilde{nn}-tmp*W{pp}(nn,:)';
             end
@@ -267,32 +287,49 @@ for pp=1:P
 end
 end
 
-function [b,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N)
+function [b,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N,CA)
 
 for nn=1:N
     Ztilde{nn} = Ztilde{nn}+b(nn);
     mu = mean(Ztilde{nn});
     variance = D(nn)/MnT(nn);
     
-    b(nn) = SimulateNormal(mu,variance);
+    if CA
+        % coordinate ascent, take mode
+        b(nn) = mu;
+    else
+        % gibbs, generate sample
+        b(nn) = SimulateNormal(mu,variance);
+    end
+    
     
     Ztilde{nn} = Ztilde{nn}-b(nn);
 end
 end
 
-function [D] = GibbsForD(D,Ztilde,MnT,N)
+function [D] = GibbsForD(D,Ztilde,MnT,N,CA)
 
-for nn=1:N 
-    D(nn) = SimulateInvChiSquare(max(MnT(nn)-2,1),Ztilde{nn}'*Ztilde{nn});
+% coordinate ascent, take mode as value
+if CA
+    for nn=1:N
+        D(nn) = Ztilde{nn}'*Ztilde{nn}/MnT(nn);
+    end
+else
+% gibbs
+    for nn=1:N
+        D(nn) = SimulateInvChiSquare(max(MnT(nn)-2,1),Ztilde{nn}'*Ztilde{nn});
+    end
 end
 end
 
-function [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp)
-
-[newS,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp);
-[newW,Ztilde] = GibbsForW(W,newS,D,Ztilde,X,hk,P,N,rp,Wprior,Xp);
-[newB,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N);
-[newD] = GibbsForD(D,Ztilde,MnT,N);
+function [W,S,b,D,Ztilde] = RunGibbs(W,S,b,D,Ztilde,X,hk,N,MnT,Mn,P,T,rp,Wprior,Xp,CA)
+% CA is an indicator telling whether to do coordinate ascent (1) by taking
+% the mode of the conditional distribution, or to do Gibbs sampling by
+% generating a random sample
+[newS,Ztilde] = GibbsForS(W,S,D,Ztilde,N,P,T,Mn,X,hk,rp,Xp,CA);
+[newW,Ztilde] = GibbsForW(W,newS,D,Ztilde,X,hk,P,N,rp,Wprior,Xp,CA);
+[newB,Ztilde] = GibbsForB(b,D,Ztilde,MnT,N,CA);
+[newD] = GibbsForD(D,Ztilde,MnT,N,CA);
 
 W = newW;
 S = newS;
