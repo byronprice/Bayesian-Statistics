@@ -131,14 +131,16 @@ while aicDiff<0
                 
                 likelihoodDiff = tmplikelihood-likelihood;
                 likelihood = tmplikelihood;
-                plot(iter,tmplikelihood,'.');pause(1/100);hold on;
+%                 plot(iter,tmplikelihood,'.');pause(1/100);hold on;
             end
             
             if likelihoodDiff<tolerance
                 break;
             end
         end
-        
+        if iter==burnIn
+            fprintf('Warning! Iteration limit reached ...\n');
+        end
         tmpAIC = 2*numParams-2*likelihood;
         
         if tmpAIC<=acrossPAIC
