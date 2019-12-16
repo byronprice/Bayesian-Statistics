@@ -40,7 +40,7 @@ end
 function [logdeterminant,ratio] = GetDet(sigsquare,rho,d)
 if d==2
 %    determinant = (sigsquare.^2).*(1-exp(-1./rho).^2);
-    logdeterminant = 2*log(sigsquare)+log(1-exp(-1/rho)*exp(-1/rho));
+    logdeterminant = 2*log(sigsquare)+log(1-exp(-2/rho));
     
 %     [K,~] = GetMain(sigsquare,rho,2);
 %     logdeterminant = 2*sum(log(diag(chol(K))));
@@ -71,7 +71,7 @@ inverse(1,1) = exp(det2-det3);inverse(d,d) = exp(det2-det3);
 mainDiagInds = mainDiagInds(2:end-1);
 
 % inverse(mainDiagInds) = ((sigsquare.^2).*(1-exp(-2./rho).^2))./det3;
-inverse(mainDiagInds) = exp(2*log(sigsquare)+log(1-exp(-2/rho)*exp(-2/rho))-det3);
+inverse(mainDiagInds) = exp(2*log(sigsquare)+log(1-exp(-4/rho))-det3);
 
 temp = ((sigsquare.^2).*(exp(-1./rho)).*(exp(-2./rho)-1))./exp(det3);
 % temp = exp(2*log(sigsquare)-2/rho-det3);

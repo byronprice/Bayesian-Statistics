@@ -1,4 +1,4 @@
-function [K,Kinv,logdet,time] = AbsExpCov2D(sigsquare,rho,d)
+function [K,Kinv,logdet] = AbsExpCov2D(sigsquare,rho,d)
 % AbsExpCov.m
 %  Code to get the absolute value exponential covariance matrix (the Matern
 %   covariance for nu=1/2), along with its inverse and determinant. This
