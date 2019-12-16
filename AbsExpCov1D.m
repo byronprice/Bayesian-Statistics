@@ -44,17 +44,10 @@ if d==2
     
 %     [K,~] = GetMain(sigsquare,rho,2);
 %     logdeterminant = 2*sum(log(diag(chol(K))));
-    ratio = 1;
-elseif d==3
-    [K,~] = GetMain(sigsquare,rho,3);
-    logdeterminant = 2*sum(log(diag(chol(K))));
-    [logdet2,~] = GetDet(sigsquare,rho,2);
-    
-    ratio = logdeterminant-logdet2;
+    ratio = log(sigsquare)+log(1-exp(-2/rho));
 else
     det2 = GetDet(sigsquare,rho,2);
-    det3 = GetDet(sigsquare,rho,3);
-    ratio = det3-det2;
+    ratio = log(sigsquare)+log(1-exp(-2/rho));
     logdeterminant = ratio*(d-2)+det2;
 end
 end
