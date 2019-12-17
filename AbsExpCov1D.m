@@ -46,8 +46,8 @@ if d==2
 %     logdeterminant = 2*sum(log(diag(chol(K))));
     ratio = log(sigsquare)+log(1-exp(-2/rho));
 else
-    det2 = GetDet(sigsquare,rho,2);
-    ratio = log(sigsquare)+log(1-exp(-2/rho));
+    [det2,ratio] = GetDet(sigsquare,rho,2);
+%     ratio = log(sigsquare)+log(1-exp(-2/rho));
     logdeterminant = ratio*(d-2)+det2;
 end
 end
