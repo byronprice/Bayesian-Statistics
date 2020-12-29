@@ -28,8 +28,8 @@ function [W,eigenvalues,sigmasquare,mu,qeff] = BayesianPCA(data,q)
 %        I-q is the identity matrix with q = d-1 dimensions
 %      W is the linear transformation matrix that transforms the data
 %       from the latent space to the original space
-%      
-%        x(:,ii) = pinv(W)*(data(:,ii)-mu)
+%        M = W'*W+sigmasquare*I-q
+%        x(:,ii) = pinv(M)*W'*(data(:,ii)-mu)
 % 
 %Created: 2017/05/24
 % Byron Price
