@@ -18,6 +18,7 @@ function [piParam,mu,sigma,alpha] = GaussMixtureEM(data,K)
 %
 %Created: 2018/10/22
 % By: Byron Price
+%Updated: 2020/01/02
 
 % test code with OldFaithfulGeyser dataset
 %  GaussMixtureEM(data,2); 
@@ -52,14 +53,8 @@ for tt=1:maxIter
     alpha = zeros(N,K);
     
     for ii=1:K
-        tempMu = mu{ii};
-        tempSigma = sigma{ii};
-        detSigma = det(tempSigma);
-        for kk=1:d
-            tempSigma = SWEEP(tempSigma,kk); % the inverse of sigma is now stored here
-        end
         for jj=1:N
-            alpha(jj,ii) = GetLogMvnLikelihood(data(jj,:)',tempMu,detSigma,tempSigma)+log(piParam(ii));
+            alpha(jj,ii) = GetLogMvnLikelihood(data(jj,:)',mu{ii},sigma{ii})+log(piParam(ii));
         end
     end
     
@@ -123,9 +118,9 @@ for tt=1:maxIter
 end
 end
 
-function [logPDF] = GetLogMvnLikelihood(data,mu,detSigma,sigmaInv)
-
-logPDF = -0.5*log(detSigma)-0.5*(data-mu)'*sigmaInv*(data-mu);
+function [logPDF] = GetLogMvnLikelihood(data,mu,sigma)
+logdet = 2*sum(log(diag(chol(sigma))));
+logPDF = -0.5*logdet-0.5*(data-mu)'*(sigma\(data-mu));
 
 end
 
