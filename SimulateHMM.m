@@ -12,7 +12,7 @@ function [state,emission] = SimulateHMM(P,EmissionDist,N,start)
 %        start - state to start in, defaults to 2
 %OUTPUTS:
 %        state - vector [N-by-1] of hidden state labels
-%        emission - vector [N-by-1] of observed data, given the hidden
+%        emission - vector [N-by-d] of observed data, given the hidden
 %        states
 % Byron Price, 2018/11/25
 
@@ -24,9 +24,14 @@ end
 state = zeros(N,1);
 emission = zeros(N,d);
 
-numStates = size(P,1);
+K = size(P,1);
 
-prevState = zeros(1,numStates);prevState(start) = 1;
+% guarantee P is normalized properly
+for kk=1:K
+   P(kk,:) = P(kk,:)./sum(P(kk,:)); 
+end
+
+prevState = zeros(1,K);prevState(start) = 1;
 for ii=1:N
     transitionProbs = prevState*P;
     prevState = mnrnd(1,transitionProbs);

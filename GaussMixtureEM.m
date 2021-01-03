@@ -1,4 +1,4 @@
-function [piParam,mu,sigma,alpha] = GaussMixtureEM(data,K)
+function [piParam,mu,sigma,alpha,logLikelihood] = GaussMixtureEM(data,K)
 %GaussMixtureEM.m
 %   Fit latent variable Normal-Multinomial model for Gaussian mixture data 
 %    using the EM algorithm. Data is assumed to be a mixture of K Gaussian
@@ -15,6 +15,7 @@ function [piParam,mu,sigma,alpha] = GaussMixtureEM(data,K)
 %       sigma - cell array with covariance of each component
 %       alpha - log probability that each datapoint comes from a given
 %        component
+%       logLikelihood - log likelihood of the data under the fitted model
 %
 %Created: 2018/10/22
 % By: Byron Price
@@ -79,7 +80,7 @@ for tt=1:maxIter
     sigmaStar = sigma;
     for ii=1:K
         for jj=1:d
-           muStar{ii}(jj) = exp(LogSum(alpha(:,ii)+logData(:,jj),N)-LogSum(alpha(:,ii),N)); 
+           muStar{ii}(jj) = real(exp(LogSum(alpha(:,ii)+logData(:,jj),N)-LogSum(alpha(:,ii),N))); 
         end
         
         tmp = zeros(N,d,d);
@@ -89,7 +90,7 @@ for tt=1:maxIter
         
         for jj=1:d
             for kk=1:d
-                sigmaStar{ii}(jj,kk) = exp(LogSum(alpha(:,ii)+squeeze(tmp(:,jj,kk)),N)-LogSum(alpha(:,ii),N));
+                sigmaStar{ii}(jj,kk) = real(exp(LogSum(alpha(:,ii)+squeeze(tmp(:,jj,kk)),N)-LogSum(alpha(:,ii),N)));
             end
         end
     end
@@ -99,22 +100,36 @@ for tt=1:maxIter
        totalPrecision = totalPrecision+sum(abs(muStar{ii}-mu{ii}));
        totalPrecision = totalPrecision+sum(sum(abs(sigmaStar{ii}-sigma{ii})));
     end
+    
     if totalPrecision<=tolerance
         % get back real numbers, in case original inputs were complex
-        % numbers (this is the case if datapoints are negative)
+        %  numbers 
         piParam = real(piParam);
         alpha = real(alpha);
         for ii=1:K
-            tmp = mu{ii};
-            mu{ii} = real(tmp);
-            tmp = sigma{ii};
-            sigma{ii} = real(tmp);
+            mu{ii} = real(mu{ii});
+            sigma{ii} = real(sigma{ii});
         end
         break;
     end
     piParam = piParamStar;
     mu = muStar;
     sigma = sigmaStar;
+end
+
+% evaluate log likelihood of the data
+
+logLikelihood = GetLogLikelihood(data,mu,sigma,piParam,N,K);
+end
+
+function [loglike] = GetLogLikelihood(data,mu,sigma,piParam,N,K)
+loglike = 0;
+for nn=1:N
+    summation = zeros(K,1);
+    for kk=1:K
+        summation(kk) = log(piParam(kk))+GetLogMvnLikelihood(data(nn,:)',mu{kk},sigma{kk});
+    end
+    loglike = loglike+LogSum(summation,K);
 end
 end
 

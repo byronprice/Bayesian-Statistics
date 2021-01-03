@@ -25,8 +25,8 @@ end
 
 EmissionDist = cell(K,2);
 for kk=1:K
-    EmissionDist{kk,1} = mu{kk};
-    EmissionDist{kk,2} = sigma{kk};
+    EmissionDist{kk,1} = real(mu{kk});
+    EmissionDist{kk,2} = real(sigma{kk});
 end
 
 P = zeros(K,K);
