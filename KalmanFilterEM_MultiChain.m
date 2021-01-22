@@ -11,7 +11,7 @@ function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM_MultiChain(data,heldOutData
 %          x-(t) = C*z-(t)+nu
 %          where nu ~ N(0,Sigma)
 %INPUT: data - observed data, input as a cell array, 1-by-P, where P is the
-%        number of chains observed, which entry in the cell array a matrix
+%        number of chains observed, with each entry in the cell array a matrix
 %        d-by-N, where N is the
 %        number of observations in the chain and d is the dimensionality 
 %        of each observation (observations number N can vary for each

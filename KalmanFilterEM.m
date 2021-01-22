@@ -1,4 +1,4 @@
-function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM(data,heldOutData)
+function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM(data,K,heldOutData)
 %KalmanFilterEM.m
 %   Fit latent variable (state-space) model for Kalman filter parameters
 %    using the EM algorithm. Data is assumed to be driven by an underlying
@@ -14,6 +14,7 @@ function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM(data,heldOutData)
 %        number of observations in the chain and d is the dimensionality 
 %        of each observation
 %  OPTIONAL
+%       K - dimensionality of latent space
 %       heldOutData - observed data, d-by-M, which is held-out for
 %         cross-validation purposes, to avoid overfitting
 %OUTPUTS:
@@ -29,41 +30,50 @@ function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM(data,heldOutData)
 %Created: 2018/12/11
 % By: Byron Price
 
+[d,N] = size(data);
+
 if nargin==1
+    heldOut = false;
+    K = d;
+elseif nargin==2
     heldOut = false;
 else
     heldOut = true;
     [~,M] = size(heldOutData);
 end
 
-[d,N] = size(data);
-
 % initialize parameters
 Sigma = cov(data');
 
 % estimate of observation noise covariance
-Gamma = Sigma./2;
+if K==d
+    Gamma = Sigma./2;
+else
+    Gamma = normrnd(0,1,[K,K]);
+    Gamma = Gamma'*Gamma;
+end
 
 % transformation from z to x
-C = eye(d);
-% A = zeros(d,d);
-% for ii=1:d
-%     for jj=1:d
-%         A(ii,jj) = data(jj,:)'\data(ii,:)';
-%     end
-% end
+C = normrnd(0,1,[d,K]);
 
 % generate transformation matrix for vector autoregressive process
-tmp1 = zeros(d,d);
-tmp2 = zeros(d,d);
-for ii=2:N
-    tmp1 = tmp1+data(:,ii-1)*data(:,ii)';
-    tmp2 = tmp2+data(:,ii-1)*data(:,ii-1)';
+
+if K==d
+    tmp1 = zeros(d,d);
+    tmp2 = zeros(d,d);
+    for ii=2:N
+        tmp1 = tmp1+data(:,ii)*data(:,ii-1)';
+        tmp2 = tmp2+data(:,ii-1)*data(:,ii-1)';
+    end
+    A = tmp1/tmp2;
+
+else
+    A = normrnd(0,1,[K,K]);
+    A = A./norm(A).^2;
 end
-A = tmp1/tmp2; 
 % A = mldivide(data(:,1:end-1)',data(:,2:end)')';
 
-mu0 = zeros(d,1);
+mu0 = zeros(K,1);
 V0 = Gamma;
 
 % suffStat = zeros(d,d);
