@@ -99,12 +99,12 @@ for tt=1:maxIter
     Ez = zeros(d,N);
     Ezn_zn = cell(N,1);
     Ezn_zn1 = cell(N,1);
-    Ezn1_zn = cell(N,1);
+%     Ezn1_zn = cell(N,1);
     for ii=1:N
         Ez(:,ii) = muhat_n{ii};
         if ii>1
             Ezn_zn1{ii} = J_n{ii-1}*Vhat_n{ii}+muhat_n{ii}*muhat_n{ii-1}';
-            Ezn1_zn{ii} = J_n{ii}*Vhat_n{ii-1}+muhat_n{ii-1}*muhat_n{ii}';
+%             Ezn1_zn{ii} = J_n{ii}*Vhat_n{ii-1}+muhat_n{ii-1}*muhat_n{ii}';
         end
         Ezn_zn{ii} = Vhat_n{ii}+muhat_n{ii}*muhat_n{ii}';
     end
@@ -128,7 +128,7 @@ for tt=1:maxIter
     tmp = zeros(size(Gamma));
     for ii=2:N
         tmp = tmp+...
-           Ezn_zn{ii}-A*Ezn1_zn{ii}-Ezn_zn1{ii}*A'+A*Ezn_zn{ii-1}*A';
+           Ezn_zn{ii}-A*Ezn_zn1{ii}'-Ezn_zn1{ii}*A'+A*Ezn_zn{ii-1}*A';
     end
     Gamma = (1/(N-1)).*tmp;
     
