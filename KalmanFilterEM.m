@@ -90,17 +90,17 @@ tolerance = 1e-3;
 prevLikelihood = -1e10;
 for tt=1:maxIter
     % E step, get expected hidden state estimates
-    [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(data,A,C,Gamma,Sigma,mu0,V0,N,d);
+    [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(data,A,C,Gamma,Sigma,mu0,V0,N,K);
 
     if heldOut==true
-        [~,~,c_n_heldout,~] = KalmanForwardAlgo(heldOutData,A,C,Gamma,Sigma,mu0,V0,M,d);
+        [~,~,c_n_heldout,~] = KalmanForwardAlgo(heldOutData,A,C,Gamma,Sigma,mu0,V0,M,K);
         currentLikelihood = sum(c_n_heldout);
     else
         currentLikelihood = sum(c_n);
     end
     [muhat_n,Vhat_n,J_n] = KalmanBackwardAlgo(A,mu_n,V_n,P_n,N);
     
-    Ez = zeros(d,N);
+    Ez = zeros(K,N);
     Ezn_zn = cell(N,1);
     Ezn_zn1 = cell(N,1);
 %     Ezn1_zn = cell(N,1);
@@ -165,14 +165,14 @@ end
 z = Ez;
 end
 
-function [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(x,A,C,Gamma,Sigma,mu0,V0,N,d)
+function [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(x,A,C,Gamma,Sigma,mu0,V0,N,K)
 % KalmanForwardAlgo.m
 %  run forward algorithm for Kalman filter
 P_n = cell(N,1);
 mu_n  = cell(N,1);
 V_n = cell(N,1);
 c_n = zeros(N,1);
-I = eye(d);
+I = eye(K);
 
 gaussMean = C*mu0;
 gaussCov = C*V0*C'+Sigma;
