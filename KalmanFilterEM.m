@@ -57,7 +57,6 @@ end
 C = normrnd(0,1,[d,K]);
 
 % generate transformation matrix for vector autoregressive process
-
 if K==d
     tmp1 = zeros(d,d);
     tmp2 = zeros(d,d);
@@ -73,8 +72,13 @@ else
 end
 % A = mldivide(data(:,1:end-1)',data(:,2:end)')';
 
-mu0 = zeros(K,1);
-V0 = Gamma;
+if K==d
+    mu0 = mean(data{1},2);
+    V0 = Sigma;
+else
+    mu0 = zeros(K,1);
+    V0 = Gamma;
+end
 
 % suffStat = zeros(d,d);
 % for ii=1:N

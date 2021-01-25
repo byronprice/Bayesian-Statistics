@@ -1,4 +1,4 @@
-function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM_MultiChain(data,heldOutData)
+function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM_MultiChain(data,K,heldOutData)
 %KalmanFilterEM.m
 %   Fit latent variable (state-space) model for Kalman filter parameters
 %    using the EM algorithm. Data is assumed to be driven by an underlying
@@ -11,7 +11,7 @@ function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM_MultiChain(data,heldOutData
 %          x-(t) = C*z-(t)+nu
 %          where nu ~ N(0,Sigma)
 %INPUT: data - observed data, input as a cell array, 1-by-P, where P is the
-%        number of chains observed, with each entry in the cell array a matrix
+%        number of chains observed, which entry in the cell array a matrix
 %        d-by-N, where N is the
 %        number of observations in the chain and d is the dimensionality 
 %        of each observation (observations number N can vary for each
@@ -32,17 +32,6 @@ function [A,C,Gamma,Sigma,z,mu0,V0] = KalmanFilterEM_MultiChain(data,heldOutData
 %Created: 2018/12/11
 % By: Byron Price
 
-if nargin==1
-    heldOut = false;
-else
-    heldOut = true;
-    numHeldOut = size(heldOutData,2);
-    heldOutLen = zeros(numHeldOut,1);
-    for jj=1:numHeldOut
-        [~,heldOutLen(jj)] = size(heldOutData{jj});
-    end
-end
-
  % allow for multiple chains
 numChains = size(data,2);
 
@@ -54,34 +43,56 @@ for ii=1:numChains
     chainLen(ii) = N;
 end
 
+if nargin==1
+    heldOut = false;
+    K = d;
+elseif nargin==2
+    heldOut = false;
+else
+    heldOut = true;
+    numHeldOut = size(heldOutData,2);
+    heldOutLen = zeros(numHeldOut,1);
+    for jj=1:numHeldOut
+        [~,heldOutLen(jj)] = size(heldOutData{jj});
+    end
+end
+
 % initialize parameters
 Sigma = cov(data{1}')./2;
 
 % estimate of observation noise covariance
-Gamma = Sigma./2;
+if K==d
+    Gamma = Sigma./2;
+else
+    Gamma = normrnd(0,1,[K,K]);
+    Gamma = Gamma'*Gamma;
+end
 
 % transformation from z to x
-C = eye(d);
-% A = zeros(d,d);
-% for ii=1:d
-%     for jj=1:d
-%         A(ii,jj) = data(jj,:)'\data(ii,:)';
-%     end
-% end
+C = normrnd(0,1,[d,K]);
 
 % generate transformation matrix for vector autoregressive process
-tmp1 = zeros(d,d);
-tmp2 = zeros(d,d);
-for jj=1:numChains
-    for ii=2:chainLen(jj)
-        tmp1 = tmp1+data{jj}(:,ii-1)*data{jj}(:,ii)';
-        tmp2 = tmp2+data{jj}(:,ii-1)*data{jj}(:,ii-1)';
+if K==d
+    tmp1 = zeros(d,d);
+    tmp2 = zeros(d,d);
+    for ii=2:N
+        tmp1 = tmp1+data(:,ii)*data(:,ii-1)';
+        tmp2 = tmp2+data(:,ii-1)*data(:,ii-1)';
     end
-end
-A = tmp1/tmp2;
+    A = tmp1/tmp2;
 
-mu0 = mean(data{1},2);
-V0 = Sigma;
+else
+    A = normrnd(0,1,[K,K]);
+    A = A./norm(A).^2;
+end
+
+if K==d
+    mu0 = mean(data{1},2);
+    V0 = Sigma;
+else
+    mu0 = zeros(K,1);
+    V0 = Gamma;
+end
 
 % suffStat = zeros(d,d);
 % for ii=1:N
@@ -128,17 +139,17 @@ for tt=1:maxIter
     Ez = cell(numChains,1);
     Ezn_zn = cell(numChains,1);
     Ezn_zn1 = cell(numChains,1);
-    Ezn1_zn = cell(numChains,1);
+%     Ezn1_zn = cell(numChains,1);
     for jj=1:numChains
         Ez{jj} = zeros(d,chainLen(jj));
         Ezn_zn{jj} = cell(chainLen(jj),1);
         Ezn_zn1{jj} = cell(chainLen(jj),1);
-        Ezn1_zn{jj} = cell(chainLen(jj),1);
+%         Ezn1_zn{jj} = cell(chainLen(jj),1);
         for ii=1:chainLen(jj)
             Ez{jj}(:,ii) = muhat_n{jj}{ii};
             if ii>1
                 Ezn_zn1{jj}{ii} = J_n{jj}{ii-1}*Vhat_n{jj}{ii}+muhat_n{jj}{ii}*muhat_n{jj}{ii-1}';
-                Ezn1_zn{jj}{ii} = J_n{jj}{ii}*Vhat_n{jj}{ii-1}+muhat_n{jj}{ii-1}*muhat_n{jj}{ii}';
+%                 Ezn1_zn{jj}{ii} = J_n{jj}{ii}*Vhat_n{jj}{ii-1}+muhat_n{jj}{ii-1}*muhat_n{jj}{ii}';
             end
             Ezn_zn{jj}{ii} = Vhat_n{jj}{ii}+muhat_n{jj}{ii}*muhat_n{jj}{ii}';
         end
@@ -175,7 +186,7 @@ for tt=1:maxIter
     for jj=1:numChains
         for ii=2:chainLen(jj)
             tmp = tmp+...
-                Ezn_zn{jj}{ii}-A*Ezn1_zn{jj}{ii}-Ezn_zn1{jj}{ii}*A'+A*Ezn_zn{jj}{ii-1}*A';
+                Ezn_zn{jj}{ii}-A*Ezn_zn1{jj}{ii}'-Ezn_zn1{jj}{ii}*A'+A*Ezn_zn{jj}{ii-1}*A';
             totalCount = totalCount+1;
         end
     end
