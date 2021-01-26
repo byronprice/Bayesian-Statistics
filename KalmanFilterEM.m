@@ -43,18 +43,15 @@ else
 end
 
 % initialize parameters
-Sigma = cov(data');
+dataCov = data*data';
+Sigma = dataCov./(N-1);
 
-% estimate of observation noise covariance
-if K==d
-    Gamma = Sigma./2;
-else
-    Gamma = normrnd(0,1,[K,K]);
-    Gamma = Gamma'*Gamma;
-end
 
 % transformation from z to x
 C = normrnd(0,1,[d,K]);
+
+% estimate of observation noise covariance
+Gamma = C'*(Sigma./2)*C;
 
 % generate transformation matrix for vector autoregressive process
 if K==d
@@ -101,58 +98,42 @@ for tt=1:maxIter
     [muhat_n,Vhat_n,J_n] = KalmanBackwardAlgo(A,mu_n,V_n,P_n,N);
     
     Ez = zeros(K,N);
-    Ezn_zn = cell(N,1);
-    Ezn_zn1 = cell(N,1);
-%     Ezn1_zn = cell(N,1);
+    Sum_Ezn_zn = zeros(K,K);
+    Sum1_Ezn_zn = zeros(K,K);
+    Sum2_Ezn_zn = zeros(K,K);
+    Sum_Ezn_zn1 = zeros(K,K);
     for ii=1:N
         Ez(:,ii) = muhat_n{ii};
+        tmp = Vhat_n{ii}+muhat_n{ii}*muhat_n{ii}';
+        Sum_Ezn_zn = Sum_Ezn_zn+tmp;
         if ii>1
-            Ezn_zn1{ii} = J_n{ii-1}*Vhat_n{ii}+muhat_n{ii}*muhat_n{ii-1}';
-%             Ezn1_zn{ii} = J_n{ii}*Vhat_n{ii-1}+muhat_n{ii-1}*muhat_n{ii}';
+            Sum_Ezn_zn1 = Sum_Ezn_zn1+J_n{ii-1}*Vhat_n{ii}+muhat_n{ii}*muhat_n{ii-1}';
+            Sum2_Ezn_zn = Sum2_Ezn_zn+tmp;
         end
-        Ezn_zn{ii} = Vhat_n{ii}+muhat_n{ii}*muhat_n{ii}';
+        if ii<N
+           Sum1_Ezn_zn = Sum1_Ezn_zn+tmp;
+        end
     end
-    
-    % M step, maximize expected log-likelihood
+    Sum_dataEz = data*Ez';
+    % M step, maximize expected complete-data log likelihood
     
     % update initial conditions
     mu0 = Ez(:,1);
     V0 = Vhat_n{1};
     
     % update transformation matrix A
-    tmp1 = zeros(size(A));
-    tmp2 = zeros(size(A));
-    for ii=2:N
-        tmp1 = tmp1+Ezn_zn1{ii};
-        tmp2 = tmp2+Ezn_zn{ii-1};
-    end
-    A = tmp1/tmp2;
+    A = Sum_Ezn_zn1/Sum1_Ezn_zn;
     
     % update gamma
-    tmp = zeros(size(Gamma));
-    for ii=2:N
-        tmp = tmp+...
-           Ezn_zn{ii}-A*Ezn_zn1{ii}'-Ezn_zn1{ii}*A'+A*Ezn_zn{ii-1}*A';
-    end
-    Gamma = (1/(N-1)).*tmp;
+    Gamma = (1/(N-2)).*(Sum2_Ezn_zn-A*Sum_Ezn_zn1'-Sum_Ezn_zn1*A'+...
+        A*Sum1_Ezn_zn*A');
     
     % update C
-    tmp1 = zeros(size(C));
-    tmp2 = zeros(size(C));
-    for ii=1:N
-       tmp1 = tmp1+data(:,ii)*Ez(:,ii)';
-       tmp2 = tmp2+Ezn_zn{ii};
-    end
-    C = tmp1/tmp2;
+    C = Sum_dataEz/Sum_Ezn_zn;
     
     % update sigma
-    tmp = zeros(size(Sigma));
-    for ii=1:N
-        tmp = tmp+data(:,ii)*data(:,ii)'...
-        -C*Ez(:,ii)*data(:,ii)'-...
-            data(:,ii)*Ez(:,ii)'*C'+C*Ezn_zn{ii}*C';
-    end
-    Sigma = (1/N)*tmp;
+    tmp = C*Ez*data';
+    Sigma = (1/(N-1))*(dataCov-tmp-tmp'+C*Sum_Ezn_zn*C');
     
     if currentLikelihood-prevLikelihood<=tolerance
         break;
@@ -176,28 +157,27 @@ I = eye(K);
 
 gaussMean = C*mu0;
 gaussCov = C*V0*C'+Sigma;
-K = (V0*C')/gaussCov;
-mu_n{1} = mu0+K*(x(:,1)-gaussMean);
-V_n{1} = (I-K*C)*V0;
+V0Ct = V0*C';
+gaussInput = gaussCov\(x(:,1)-gaussMean);
+mu_n{1} = mu0+V0Ct*gaussInput;
+V_n{1} = (I-V0Ct*(gaussCov\C))*V0;
 
-% sigmaInv = gaussCov;sigmaDet = det(gaussCov);
-% for jj=1:d
-%     sigmaInv = SWEEP(sigmaInv,jj);
-% end
-
-c_n(1) = GetLogMvnLikelihood(x(:,1),gaussMean,gaussCov);
+% sigmaDet = det(gaussCov);
+c_n(1) = GetLogMvnLikelihood(x(:,1),gaussMean,gaussCov,gaussInput);
 
 for ii=2:N
     P = A*V_n{ii-1}*A'+Gamma;
-    gaussMean = C*A*mu_n{ii-1};
+    oneStepPred = A*mu_n{ii-1};
+    gaussMean = C*oneStepPred;
     gaussCov = C*P*C'+Sigma;
     
-    K = (P*C')/gaussCov;
-    mu_n{ii} = A*mu_n{ii-1}+K*(x(:,ii)-gaussMean);
-    V_n{ii} = (I-K*C)*P;
+    PCt = P*C';
+    gaussInput = gaussCov\(x(:,ii)-gaussMean);
+    mu_n{ii} = oneStepPred+PCt*gaussInput;
+    V_n{ii} = (I-PCt*(gaussCov\C))*P;
     
 %     sigmaDet = det(gaussCov);
-    c_n(ii) = GetLogMvnLikelihood(x(:,ii),gaussMean,gaussCov);
+    c_n(ii) = GetLogMvnLikelihood(x(:,ii),gaussMean,gaussCov,gaussInput);
     P_n{ii-1} = P;
 end
 
@@ -205,41 +185,16 @@ P_n{N} = A*V_n{N}*A'+Gamma;
 
 end
 
-function [logPDF] = GetLogMvnLikelihood(data,mu,sigma)
-logdet = 2*sum(log(diag(chol(sigma))));
-logPDF = -0.5*logdet-0.5*(data-mu)'*(sigma\(data-mu));
+function [logPDF] = GetLogMvnLikelihood(data,mu,sigma,sigmaInvData)
+logdet = sum(log(diag(chol(sigma))));
+logPDF = -logdet-0.5*(data-mu)'*sigmaInvData;
 %0.5*trace(gaussCov\(data-mu)*(data-mu)');
 
 end
 
-function [X] = SWEEP(X,k)
-%SWEEP.m
-%   Code to evaluate the SWEEP operator on row k of matrix X
-%Inputs: 
-%        X - a matrix, n-by-p
-%        k - the row number on which to evaluate the operator, k<=n
-%
-%Outputs: 
-%        X - the matrix after performing the SWEEP operator on row k
-%
-% Created by: Byron Price
-% 2018/10/08
-
-D = X(k,k);
-X(k,:) = X(k,:)./D;
-
-[n,~] = size(X);
-for ii=[1:k-1,k+1:n]
-   B = X(ii,k);
-   X(ii,:) = X(ii,:)-B.*X(k,:);
-   X(ii,k) = -B/D;
-end
-X(k,k) = 1/D;
-end
-
 function [muhat_n,Vhat_n,J_n] = KalmanBackwardAlgo(A,mu_n,V_n,P_n,N)
 %KalmanBackwardAlgo.m
-%   run backward algorithm for Kalman filter
+%   run backward algorithm for Kalman smoother
 muhat_n = cell(N,1);
 Vhat_n = cell(N,1);
 J_n = cell(N,1);
