@@ -87,10 +87,11 @@ tolerance = 1e-3;
 prevLikelihood = -1e10;
 for tt=1:maxIter
     % E step, get expected hidden state estimates
-    [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(data,A,C,Gamma,Sigma,mu0,V0,N,K);
+    SigmaInv = Sigma\eye(d);
+    [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(data,A,C,Gamma,SigmaInv,mu0,V0,N,K);
 
     if heldOut==true
-        [~,~,c_n_heldout,~] = KalmanForwardAlgo(heldOutData,A,C,Gamma,Sigma,mu0,V0,M,K);
+        [~,~,c_n_heldout,~] = KalmanForwardAlgo(heldOutData,A,C,Gamma,SigmaInv,mu0,V0,M,K);
         currentLikelihood = sum(c_n_heldout);
     else
         currentLikelihood = sum(c_n);
@@ -146,7 +147,7 @@ end
 z = Ez;
 end
 
-function [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(x,A,C,Gamma,Sigma,mu0,V0,N,K)
+function [mu_n,V_n,c_n,P_n] = KalmanForwardAlgo(x,A,C,Gamma,SigmaInv,mu0,V0,N,K)
 % KalmanForwardAlgo.m
 %  run forward algorithm for Kalman filter
 P_n = cell(N,1);
@@ -156,28 +157,30 @@ c_n = zeros(N,1);
 I = eye(K);
 
 gaussMean = C*mu0;
-gaussCov = C*V0*C'+Sigma;
+% gaussCov = C*V0*C'+Sigma;
+gaussInv = SigmaInv-SigmaInv*C*((V0\I+C'*SigmaInv*C)\C'*SigmaInv);
 V0Ct = V0*C';
-gaussInput = gaussCov\(x(:,1)-gaussMean);
+gaussInput = gaussInv*(x(:,1)-gaussMean);
 mu_n{1} = mu0+V0Ct*gaussInput;
-V_n{1} = (I-V0Ct*(gaussCov\C))*V0;
+V_n{1} = (I-V0Ct*gaussInv*C)*V0;
 
 % sigmaDet = det(gaussCov);
-c_n(1) = GetLogMvnLikelihood(x(:,1),gaussMean,gaussCov,gaussInput);
+c_n(1) = GetLogMvnLikelihood(x(:,1),gaussMean,gaussInv,gaussInput);
 
 for ii=2:N
     P = A*V_n{ii-1}*A'+Gamma;
     oneStepPred = A*mu_n{ii-1};
     gaussMean = C*oneStepPred;
-    gaussCov = C*P*C'+Sigma;
+%     gaussCov = C*P*C'+Sigma;
+    gaussInv = SigmaInv-SigmaInv*C*((P\I+C'*SigmaInv*C)\C'*SigmaInv);
     
     PCt = P*C';
-    gaussInput = gaussCov\(x(:,ii)-gaussMean);
+    gaussInput = gaussInv*(x(:,ii)-gaussMean);
     mu_n{ii} = oneStepPred+PCt*gaussInput;
-    V_n{ii} = (I-PCt*(gaussCov\C))*P;
+    V_n{ii} = (I-PCt*gaussInv*C)*P;
     
 %     sigmaDet = det(gaussCov);
-    c_n(ii) = GetLogMvnLikelihood(x(:,ii),gaussMean,gaussCov,gaussInput);
+    c_n(ii) = GetLogMvnLikelihood(x(:,ii),gaussMean,gaussInv,gaussInput);
     P_n{ii-1} = P;
 end
 
@@ -185,9 +188,9 @@ P_n{N} = A*V_n{N}*A'+Gamma;
 
 end
 
-function [logPDF] = GetLogMvnLikelihood(data,mu,sigma,sigmaInvData)
-logdet = sum(log(diag(chol(sigma))));
-logPDF = -logdet-0.5*(data-mu)'*sigmaInvData;
+function [logPDF] = GetLogMvnLikelihood(data,mu,sigmaInv,sigmaInvData)
+logdet = sum(log(diag(chol(sigmaInv))));
+logPDF = logdet-0.5*(data-mu)'*sigmaInvData;
 %0.5*trace(gaussCov\(data-mu)*(data-mu)');
 
 end
