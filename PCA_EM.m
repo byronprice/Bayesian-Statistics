@@ -73,22 +73,24 @@ for iter=1:maxIter
     WtW = W'*W;
     Minv = (WtW+Ik./precision)\Ik;
     
-    Wgrad = zeros(size(W));
-    preGrad = 0;
+    MiWt = Minv*W';
+    EzEzt = zeros(K,K);
+    xEzt = zeros(d,K);
+    xtx = 0;
     for nn=1:batchSize
 
         xhat = data(:,inds(nn));
         
-        Wtx = W'*xhat;
-        Ez = Minv*Wtx;
-        EzEzt = Minv./precision+Ez*Ez';
-        
-        Wgrad = Wgrad+(xhat*Ez'-W*EzEzt);
-        
-        preGrad = preGrad+(d/precision-(xhat'*xhat)+2*Ez'*Wtx-...
-            sum(sum(EzEzt'.*WtW)));
+        Ez = MiWt*xhat;
+        EzEzt = EzEzt+Ez*Ez';
+        xEzt = xEzt+bsxfun(@times,xhat,Ez');
+        xtx = xtx-xhat'*xhat;
+       
     end
-    Wgrad = Wgrad.*precision;
+    EzEzt = EzEzt+(Minv*batchSize)./precision;
+    Wgrad = (xEzt-W*EzEzt).*precision;
+    preGrad = xtx+d*batchSize/precision+2*sum(sum(W.*xEzt))-sum(sum(EzEzt'.*WtW));
+
     W = W+nu*Wgrad./batchSize;
     precision = max(precision+nu*preGrad./batchSize,1e-9);
 end
