@@ -4,15 +4,15 @@ function [W,mu,sigmasquare,z,likelihood] = PCA_EM(data,K)
 
 [d,N] = size(data);
 
-W = normrnd(0,1,[d,K]);
-sigmasquare = var(data(:));
-Ik = eye(K);
-
 mu = mean(data,2);
 
 data = data-repmat(mu,[1,N]);
 
 dataVar = sum(sum(data.*data));
+
+W = normrnd(0,1,[d,K]);
+sigmasquare = var(data(:));
+Ik = eye(K);
 
 maxIter = 1000;
 tolerance = 1e-6;oldW = W;
@@ -25,16 +25,16 @@ for iter=1:maxIter
     Sum_sigmasquare = dataVar;
     
     WtW = W'*W;
+    sigSquareMinv = sigmasquare*Minv;
     for nn=1:N
-        tmp = W'*data(:,nn);
-        Ez = Minv*tmp;
+        Wtx = W'*data(:,nn);
+        Ez = Minv*Wtx;
         Sum_dataEz = Sum_dataEz+data(:,nn)*Ez';
-        EzEzt = Ez*Ez';
+        EzEzt = sigSquareMinv+Ez*Ez';
         Sum_EzEz = Sum_EzEz+EzEzt;
         
-        Sum_sigmasquare = Sum_sigmasquare-2*Ez'*tmp+sum(sum(EzEzt'.*WtW));
+        Sum_sigmasquare = Sum_sigmasquare-2*Ez'*Wtx+sum(sum(EzEzt'.*WtW));
     end
-    Sum_EzEz = Sum_EzEz+N*sigmasquare*Minv;
     
     W = Sum_dataEz/Sum_EzEz;
     sigmasquare = (1/(N*d))*Sum_sigmasquare;
@@ -60,39 +60,39 @@ function [W,sigmasquare] = OnlinePCA_EM(data,K)
 [d,N] = size(data);
 
 W = normrnd(0,1,[d,K]);
-sigmasquare = var(data(:));
+precision = 1./var(data(:));
 Ik = eye(K);
 
 nu = 1e-2;
 
-maxIter = 1e3;
+maxIter = 5e3;
 batchSize = 10;
 for iter=1:maxIter
     inds = randperm(N,batchSize);
     
     WtW = W'*W;
-    Minv = (WtW+Ik.*sigmasquare)\Ik;
+    Minv = (WtW+Ik./precision)\Ik;
     
     Wgrad = zeros(size(W));
-    sigmaGrad = 0;
+    preGrad = 0;
     for nn=1:batchSize
-        
-        
+
         xhat = data(:,inds(nn));
         
         Wtx = W'*xhat;
         Ez = Minv*Wtx;
-        EzEzt = sigmasquare*Minv+Ez*Ez';
+        EzEzt = Minv./precision+Ez*Ez';
         
         Wgrad = Wgrad+(xhat*Ez'-W*EzEzt);
         
-        sigmaGrad = sigmaGrad+(-d+(xhat'*xhat)/sigmasquare-2*Ez'*Wtx/sigmasquare+...
-            sum(sum(EzEzt'.*WtW))/sigmasquare);
+        preGrad = preGrad+(d/precision-(xhat'*xhat)+2*Ez'*Wtx-...
+            sum(sum(EzEzt'.*WtW)));
     end
+    Wgrad = Wgrad.*precision;
     W = W+nu*Wgrad./batchSize;
-    sigmasquare = max(sigmasquare+nu*sigmaGrad./batchSize,1e-9);
+    precision = max(precision+nu*preGrad./batchSize,1e-9);
 end
-
+sigmasquare = 1/precision;
 end
 
 function [loglikelihood] = GetLikelihood(data,W,sigmasquare,N,d)
