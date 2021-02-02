@@ -53,6 +53,9 @@ for nn=1:N
 end
 
 [likelihood] = GetLikelihood(data,W,sigmasquare,N,d);
+
+% optimal reconstruction in squared error sense is:
+%   W*((W'*W)\M*z)+mu
 end
 
 % online version
