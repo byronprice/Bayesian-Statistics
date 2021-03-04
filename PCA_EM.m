@@ -1,7 +1,8 @@
 function [W,mu,sigmasquare,z,likelihood] = PCA_EM(data,K)
 % PCA_EM.m
 %    EM algorithm for PCA
-
+%   C = W*W' + sigmasquare*I
+%   Cinv = (1/sigmasquare)*I-(1/sigmasquare)^2*W*(I+W'*W*(1/sigmasquare))^-1*W'
 [d,N] = size(data);
 
 mu = mean(data,2);
