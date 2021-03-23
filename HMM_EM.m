@@ -47,7 +47,7 @@ prevLikelihood = -Inf;
 for iter=1:maxIter
     % E step
     %   calculate responsibilities and soft transition matrix
-    [~,logalpha] = ForwardHMM(P,EmissionDist,Pi,data);
+    [currentLikelihood,logalpha] = ForwardHMM(P,EmissionDist,Pi,data);
     [logbeta] = BackwardHMM(P,EmissionDist,data);
     
     logepsilon = zeros(N-1,K,K);
@@ -105,7 +105,7 @@ for iter=1:maxIter
         EmissionDist{kk,2} = real(sigma{kk});
     end
 
-    [currentLikelihood,~] = ForwardHMM(P,EmissionDist,Pi,data);
+%     [currentLikelihood,~] = ForwardHMM(P,EmissionDist,Pi,data);
     
     if currentLikelihood-prevLikelihood > tolerance
         prevLikelihood = currentLikelihood;
