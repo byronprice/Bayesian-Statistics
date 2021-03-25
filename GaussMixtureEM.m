@@ -39,23 +39,24 @@ piParam = (1./K).*ones(K,1);
 Q = quantile(data(:,1),linspace(0,1,K+1));
 
 mu = cell(K,1);
-sigma = cell(K,1);
-
+sigmaInv = cell(K,1);
+Id = eye(d);
 for ii=1:K
    currentData = data(data(:,1)>=Q(1,ii) & data(:,1)<Q(1,ii+1),:);
    mu{ii} = mean(currentData)';
-   sigma{ii} = cov(currentData);
+   sigmaInv{ii} = cov(currentData)\Id;
 end
 
 maxIter = 1e3;
 tolerance = 1e-6;
+prevLikelihood = -Inf;
 for tt=1:maxIter
     % E step, calculate alpha-i,t
     alpha = zeros(N,K);
     
     for ii=1:K
         for jj=1:N
-            alpha(jj,ii) = GetLogMvnLikelihood(data(jj,:)',mu{ii},sigma{ii})+log(piParam(ii));
+            alpha(jj,ii) = GetLogMvnLikelihood(data(jj,:)',mu{ii},sigmaInv{ii})+log(piParam(ii));
         end
     end
     
@@ -72,70 +73,65 @@ for tt=1:maxIter
     % M step, calculate new values for parameters pi, mu, sigma
     alphaSum = zeros(K,1);
     for ii=1:K
-        alphaSum(ii) = exp(LogSum(alpha(:,ii),N));
+        alphaSum(ii) = LogSum(alpha(:,ii),N);
     end
-    piParamStar = alphaSum/N;
+    piParamStar = real(exp(alphaSum))/N;
     
     muStar = mu;
-    sigmaStar = sigma;
+    sigmaStar = sigmaInv;
     for ii=1:K
         for jj=1:d
-           muStar{ii}(jj) = real(exp(LogSum(alpha(:,ii)+logData(:,jj),N)-LogSum(alpha(:,ii),N))); 
+           muStar{ii}(jj) = real(exp(LogSum(alpha(:,ii)+logData(:,jj),N)-alphaSum(ii))); 
         end
         
         tmp = zeros(N,d,d);
         for jj=1:N
-            tmp(jj,:,:) = log((data(jj,:)'-muStar{ii})*(data(jj,:)'-muStar{ii})');
+            tmp(jj,:,:) = log((data(jj,:)'-muStar{ii})*(data(jj,:)'-muStar{ii})')+...
+                alpha(jj,ii);
         end
         
         for jj=1:d
             for kk=1:d
-                sigmaStar{ii}(jj,kk) = real(exp(LogSum(alpha(:,ii)+squeeze(tmp(:,jj,kk)),N)-LogSum(alpha(:,ii),N)));
+                sigmaStar{ii}(jj,kk) = real(exp(LogSum(squeeze(tmp(:,jj,kk)),N)-alphaSum(ii)));
             end
         end
+        sigmaStar{ii} = sigmaStar{ii}\Id;
     end
     
-    totalPrecision = 0;
-    for ii=1:K
-       totalPrecision = totalPrecision+sum(abs(muStar{ii}-mu{ii}));
-       totalPrecision = totalPrecision+sum(sum(abs(sigmaStar{ii}-sigma{ii})));
-    end
+    logLikelihood = GetLogLikelihood(data,mu,sigmaInv,piParam,N,K);
     
-    if totalPrecision<=tolerance
-        % get back real numbers, in case original inputs were complex
-        %  numbers 
-        piParam = real(piParam);
-        alpha = real(alpha);
-        for ii=1:K
-            mu{ii} = real(mu{ii});
-            sigma{ii} = real(sigma{ii});
-        end
+    if (logLikelihood-prevLikelihood)<=tolerance
         break;
     end
     piParam = piParamStar;
     mu = muStar;
-    sigma = sigmaStar;
+    sigmaInv = sigmaStar;
+    prevLikelihood = logLikelihood;
 end
 
 % evaluate log likelihood of the data
 
-logLikelihood = GetLogLikelihood(data,mu,sigma,piParam,N,K);
+% logLikelihood = GetLogLikelihood(data,mu,sigma,piParam,N,K);
+sigma = cell(K,1);
+for kk=1:K
+   sigma{kk} = sigmaInv{kk}\Id;
+end
 end
 
-function [loglike] = GetLogLikelihood(data,mu,sigma,piParam,N,K)
+function [loglike] = GetLogLikelihood(data,mu,sigmaInv,piParam,N,K)
 loglike = 0;
 for nn=1:N
     summation = zeros(K,1);
     for kk=1:K
-        summation(kk) = log(piParam(kk))+GetLogMvnLikelihood(data(nn,:)',mu{kk},sigma{kk});
+        summation(kk) = log(piParam(kk))+GetLogMvnLikelihood(data(nn,:)',mu{kk},sigmaInv{kk});
     end
     loglike = loglike+LogSum(summation,K);
 end
 end
 
-function [logPDF] = GetLogMvnLikelihood(data,mu,sigma)
-logdet = 2*sum(log(diag(chol(sigma))));
-logPDF = -0.5*logdet-0.5*(data-mu)'*(sigma\(data-mu));
+function [logPDF] = GetLogMvnLikelihood(data,mu,sigmaInv)
+logdet = sum(log(diag(chol(sigmaInv))));
+logPDF = logdet-0.5*(data-mu)'*(sigmaInv*(data-mu));
 
 end
 
@@ -170,6 +166,11 @@ if vectorLen==0
 elseif vectorLen==1
     summation = vector(1);
 else
+
+%     maxVal = max(vector);
+%     difference = vector-maxVal;
+%     summation = maxVal+log1p(sum(exp(difference))-1);
+    
     vector = sort(vector);
     summation = LogSumExpTwo(vector(1),vector(2));
     for ii=2:vectorLen-1
@@ -189,11 +190,14 @@ end
 end
 
 function [y] = SoftPlus(x)
-if x<-34 % condition for small x
-   y = 0;
-else
-   y = log(1+exp(-x))+x; % numerically stable calculation of log(1+exp(x))
-end
+% if x<-34 % condition for small x
+%    y = 0;
+% else
+%    y = log(1+exp(-x))+x; % numerically stable calculation of log(1+exp(x))
+% end
+
+y = log(1+exp(-x))+x;
+y(x<=-34) = 0;
 
 end
 

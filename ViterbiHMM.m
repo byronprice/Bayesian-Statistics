@@ -1,4 +1,4 @@
-function [logProbPath,states] = ViterbiHMM(P,EmissionDist,Pi,emission)
+function [logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,emission)
 %ViterbiHMM.m   
 %   Implements the Viterbi algorithm
 %    given a Hidden Markov model with state transition probabilities
@@ -28,7 +28,7 @@ B = zeros(N,K);
 
 for kk=1:K
     logxgivenz = LogNormPDF(emission(1,:)',EmissionDist{kk,1},EmissionDist{kk,2});
-    logzgivenz = Pi(kk);
+    logzgivenz = logPi(kk);
     
     V(1,kk) = logxgivenz+logzgivenz;
     B(1,kk) = 0;
@@ -51,7 +51,7 @@ for ii=2:N
     end
 end
 [val,ind] = max(V(end,:));
-[logProbData,~] = ForwardHMM(P,EmissionDist,Pi,emission);
+[logProbData,~] = ForwardHMM(P,EmissionDist,logPi,emission);
 logProbPath = val-logProbData;
 
 % backtrace
@@ -66,7 +66,7 @@ end
 end
 
 function [logPDF] = LogNormPDF(data,mu,sigma)
-logdet = 2*sum(log(diag(chol(sigma))));
-logPDF = -0.5*logdet-0.5*(data-mu)'*(sigma\(data-mu));
+logdet = sum(log(diag(chol(sigma))));
+logPDF = -logdet-0.5*(data-mu)'*(sigma\(data-mu));
 
 end

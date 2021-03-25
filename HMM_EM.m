@@ -1,4 +1,4 @@
-function [logProbPath,states,Pi,P,EmissionDist] = HMM_EM(data,K)
+function [logProbPath,states,Pi,P,EmissionDist,steadyState] = HMM_EM(data,K)
 % HMM_EM.m
 %   EM algorithm to fit the parameters of a discrete-state Hidden Markov
 %    Model
@@ -41,13 +41,15 @@ for kk=1:K
     P(kk,:) = P(kk,:)./sum(P(kk,:));
 end
 
+logPi = log(Pi);
+
 maxIter = 1e4;
 tolerance = 1e-6;
 prevLikelihood = -Inf;
 for iter=1:maxIter
     % E step
     %   calculate responsibilities and soft transition matrix
-    [currentLikelihood,logalpha] = ForwardHMM(P,EmissionDist,Pi,data);
+    [currentLikelihood,logalpha] = ForwardHMM(P,EmissionDist,logPi,data);
     [logbeta] = BackwardHMM(P,EmissionDist,data);
     
     logepsilon = zeros(N-1,K,K);
@@ -70,7 +72,7 @@ for iter=1:maxIter
     % pi update, probability of first state to start the chain
     normalization = LogSum(logalpha(1,:)+logbeta(1,:),K);
     for kk=1:K
-        Pi(kk) = exp(logalpha(1,kk)+logbeta(1,kk)-normalization);
+        logPi(kk) = logalpha(1,kk)+logbeta(1,kk)-normalization;
     end
     
     % P update, transition probability matrix
@@ -84,9 +86,10 @@ for iter=1:maxIter
     
     % emissions update, state emission distribution
     for kk=1:K
+        normalization = LogSum(logalpha(:,kk)+logbeta(:,kk),N);
         for dd=1:d
            mu{kk}(dd) = exp(LogSum(logalpha(:,kk)+logbeta(:,kk)+logData(:,dd),N)...
-               -LogSum(logalpha(:,kk)+logbeta(:,kk),N)); 
+               -normalization); 
         end
         
         tmp = zeros(N,d,d);
@@ -97,7 +100,7 @@ for iter=1:maxIter
         for jj=1:d
             for dd=1:d
                 sigma{kk}(jj,dd) = exp(LogSum(logalpha(:,kk)+logbeta(:,kk)+...
-                    squeeze(tmp(:,jj,dd)),N)-LogSum(logalpha(:,kk)+logbeta(:,kk),N));
+                    squeeze(tmp(:,jj,dd)),N)-normalization);
             end
         end
         
@@ -106,7 +109,6 @@ for iter=1:maxIter
     end
 
 %     [currentLikelihood,~] = ForwardHMM(P,EmissionDist,Pi,data);
-    
     if currentLikelihood-prevLikelihood > tolerance
         prevLikelihood = currentLikelihood;
     else
@@ -115,7 +117,8 @@ for iter=1:maxIter
 end
 
 % calculate most probable sequence of states
-[logProbPath,states] = ViterbiHMM(P,EmissionDist,Pi,data);
+[logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,data);
+Pi = exp(logPi);
 
 % calculate steady state probabilities
 [~,D,V] = eig(P);
@@ -137,29 +140,15 @@ if vectorLen==0
 elseif vectorLen==1
     summation = vector(1);
 else
-    vector = sort(vector);
-    summation = LogSumExpTwo(vector(1),vector(2));
-    for ii=2:vectorLen-1
-        summation = LogSumExpTwo(summation,vector(ii+1));
-    end
-end
-
-end
-
-function [y] = LogSumExpTwo(x1,x2)
-check = x1>=x2;
-if check==1
-    y = x1+SoftPlus(x2-x1);
-else
-    y = x2+SoftPlus(x1-x2);
-end
-end
-
-function [y] = SoftPlus(x)
-if x<-34 % condition for small x
-   y = 0;
-else
-   y = log(1+exp(-x))+x; % numerically stable calculation of log(1+exp(x))
+    maxVal = max(vector);
+    difference = vector-maxVal;
+    summation = maxVal+log1p(sum(exp(difference))-1);
+    
+%     vector = sort(vector);
+%     summation = LogSumExpTwo(vector(1),vector(2));
+%     for ii=2:vectorLen-1
+%         summation = LogSumExpTwo(summation,vector(ii+1));
+%     end
 end
 
 end

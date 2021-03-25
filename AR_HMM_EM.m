@@ -1,4 +1,4 @@
-function [logProbPath,states,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K,nLags)
+function [logProbPath,states,A,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K,nLags)
 % AR_HMM_EM.m
 %   EM algorithm to fit the parameters of a discrete-state autoregressive
 %     Hidden Markov Model
@@ -36,32 +36,38 @@ nBackData = nBackData(:,1:end-d+1);
 
 % start with Gaussian Mixture Model to initialize emission distribution and
 %  transition probability matrix
-[Pi,~,sigma,logalpha] = GaussMixtureEM(data,K);
+[Pi,~,sigma,~] = GaussMixtureEM(data,K);
 
-states = zeros(N,1);
+logPi = log(Pi);
 
-for nn=1:N
-    [~,ind] = max(logalpha(nn,:));
-    states(nn) = ind;
-end
+% states = zeros(N,1);
+% 
+% for nn=1:N
+%     [~,ind] = max(logalpha(nn,:));
+%     states(nn) = ind;
+% end
 
+% newsigma = zeros(d,d);
+% for kk=1:K
+%     newsigma = newsigma+real(sigma{kk})./K;
+% end
+% sigma = newsigma;
+
+Id = eye(d);
 EmissionDist = cell(K,2);A = cell(K,1);
 mu = cell(K,1);
 for kk=1:K
     A{kk} = AA;
     mu{kk} = nBackData*AA';
     EmissionDist{kk,1} = mu{kk};
-    EmissionDist{kk,2} = pinv(real(sigma{kk}));
+    EmissionDist{kk,2} = sigma{kk}\Id;
 end
 clear AA;
 
-P = zeros(K,K);
-
-for nn=2:N
-    currentState = states(nn);
-    prevState = states(nn-1);
-    P(prevState,currentState) = P(prevState,currentState)+1;
-end
+pseudoObservations = 100; % for dirichlet prior
+stickiness = 0.925;
+P = stickiness.*eye(K);
+P = P+((1-stickiness)/(K-1)).*(1-eye(K));
 
 for kk=1:K
     P(kk,:) = P(kk,:)./sum(P(kk,:));
@@ -73,18 +79,17 @@ prevLikelihood = -Inf;
 for iter=1:maxIter
     % E step
     %   calculate responsibilities and soft transition matrix
-    [currentLikelihood,logalpha] = ForwardHMM(P,EmissionDist,Pi,data);
+    [currentLikelihood,logalpha] = ForwardHMM(P,EmissionDist,logPi,data);
     [logbeta] = BackwardHMM(P,EmissionDist,data);
     
     logepsilon = zeros(N-1,K,K);
     for nn=2:N
-        for jj=1:K
-            currentAlpha = logalpha(nn-1,jj);
-            for kk=1:K
-                logxgivenz = LogMvnPDF(data(nn,:)',...
-                    EmissionDist{kk,1}(nn,:)',EmissionDist{kk,2});
+        for kk=1:K
+            logxgivenz = LogMvnPDF(data(nn,:)',...
+                EmissionDist{kk,1}(nn,:)',EmissionDist{kk,2});
+            for jj=1:K
                 logzgivenz = log(P(jj,kk));
-                logepsilon(nn-1,jj,kk) = currentAlpha+logxgivenz+...
+                logepsilon(nn-1,jj,kk) = logalpha(nn-1,jj)+logxgivenz+...
                     logzgivenz+logbeta(nn,kk);
             end
         end
@@ -96,34 +101,40 @@ for iter=1:maxIter
     % pi update, probability of first state to start the chain
     normalization = LogSum(logalpha(1,:)+logbeta(1,:),K);
     for kk=1:K
-        Pi(kk) = exp(logalpha(1,kk)+logbeta(1,kk)-normalization);
+        logPi(kk) = logalpha(1,kk)+logbeta(1,kk)-normalization;
     end
     
-    % P update, transition probability matrix
+    % P update, transition probability matrix, add dirichlet prior to avoid probs of
+    %    zero
     for jj=1:K
+        dirichlet = ones(K,1)*((1-stickiness)/(K-1));dirichlet(jj) = stickiness;
+        dirichlet = dirichlet*pseudoObservations;
         tmp = squeeze(logepsilon(:,jj,:));
-        normalization = LogSum(tmp(:),(N-1)*K);
+%         normalization = LogSum(tmp(:),(N-1)*K);
         for kk=1:K
-            P(jj,kk) = exp(LogSum(tmp(:,kk),N-1)-normalization);
+            P(jj,kk) = exp(LogSum(tmp(:,kk),N-1)-currentLikelihood)+dirichlet(kk);
         end
+        P(jj,:) = P(jj,:)./sum(P(jj,:));
     end
-    
+   
     % emissions update, state emission distribution
+%     sigma = zeros(d,d);
     for kk=1:K
+        normalization = LogSum(logalpha(:,kk)+logbeta(:,kk),N);
         sumXPhiT = zeros(d,d*nLags+1);
         
         for dd=1:d
             for gg=1:d*nLags+1
                 sumXPhiT(dd,gg) = real(exp(LogSum(logalpha(:,kk)+logbeta(:,kk)+squeeze(xPhiT(:,dd,gg)),N)...
-                    -LogSum(logalpha(:,kk)+logbeta(:,kk),N)));
+                    -normalization));
             end
         end
         
         sumPhiPhiT = zeros(d*nLags+1,d*nLags+1);
         for gg=1:d*nLags+1
             for hh=1:d*nLags+1
-                sumPhiPhiT(dd,gg) = real(exp(LogSum(logalpha(:,kk)+logbeta(:,kk)+squeeze(phiPhiT(:,gg,hh)),N)...
-                    -LogSum(logalpha(:,kk)+logbeta(:,kk),N)));
+                sumPhiPhiT(gg,hh) = real(exp(LogSum(logalpha(:,kk)+logbeta(:,kk)+squeeze(phiPhiT(:,gg,hh)),N)...
+                    -normalization));
             end
         end
         
@@ -132,22 +143,31 @@ for iter=1:maxIter
         
         tmp = zeros(N,d,d);
         for nn=1:N
-            tmp(nn,:,:) = log((data(nn,:)'-mu{kk}(nn,:)')*(data(nn,:)'-mu{kk}(nn,:)')');
+            tmp(nn,:,:) = log((data(nn,:)'-mu{kk}(nn,:)')*(data(nn,:)'-mu{kk}(nn,:)')')+...
+                logalpha(nn,kk)+logbeta(nn,kk);
         end
         
         for jj=1:d
             for dd=1:d
-                sigma{kk}(jj,dd) = real(exp(LogSum(logalpha(:,kk)+logbeta(:,kk)+...
-                    squeeze(tmp(:,jj,dd)),N)-LogSum(logalpha(:,kk)+logbeta(:,kk),N)));
+                sigma{kk}(jj,dd) = real(exp(LogSum(squeeze(tmp(:,jj,dd)),N)...
+                    -normalization));
+%                   sigma(jj,dd) = sigma(jj,dd)+LogSum(squeeze(tmp(:,jj,dd)),N);
             end
         end
         
         EmissionDist{kk,1} = mu{kk};
-        EmissionDist{kk,2} = pinv(sigma{kk});
+        EmissionDist{kk,2} = sigma{kk}\Id;
     end
+    
+%     normalization = LogSum(logalpha(:)+logbeta(:),N*K);
+%     sigma = exp(sigma-normalization);
+%     sigmaInv = sigma\Id;
+%     for kk=1:K
+%         EmissionDist{kk,2} = sigmaInv;
+%     end
 
 %     [currentLikelihood,~] = ForwardHMM(P,EmissionDist,Pi,data);
-    
+    currentLikelihood-prevLikelihood
     if currentLikelihood-prevLikelihood > tolerance
         prevLikelihood = currentLikelihood;
     else
@@ -156,7 +176,8 @@ for iter=1:maxIter
 end
 
 % calculate most probable sequence of states
-[logProbPath,states] = ViterbiHMM(P,EmissionDist,Pi,data);
+[logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,data);
+Pi = exp(logPi);
 
 % calculate steady state probabilities
 [~,D,V] = eig(P);
@@ -166,7 +187,7 @@ steadyState = V(:,index)./sum(V(:,index));
 
 end
 
-function [logProbData,logAlpha] = ForwardHMM(P,EmissionDist,Pi,emission)
+function [logProbData,logAlpha] = ForwardHMM(P,EmissionDist,logPi,emission)
 %ForwardHMM.m 
 %   Implements the forward algorithm
 %    given a Hidden Markov model with state transition probabilities
@@ -191,18 +212,14 @@ logP = log(P);
 K = size(P,1);
 
 logAlpha = zeros(N,K);
+% cn = zeros(N,1);
 
 for jj=1:K
     logxgivenz = LogMvnPDF(emission(1,:)',EmissionDist{jj,1}(1,:)',EmissionDist{jj,2});
-    logVec = zeros(K,1);
-    for kk=1:K
-        logzgivenz = log(Pi(kk));
-        logVec(kk) = logzgivenz;
-    end
-    logAlpha(1,jj) = logxgivenz+LogSum(logVec,K);
+    logAlpha(1,jj) = logxgivenz+logPi(jj);
 end
-prevAlpha = logAlpha(1,:);
-
+% cn(1) = LogSum(logAlpha(1,:),K);
+% logAlpha(1,:) = logAlpha(1,:)-cn(1);
 for nn=2:N
     for jj=1:K
         logxgivenz = LogMvnPDF(emission(nn,:)',EmissionDist{jj,1}(nn,:)',EmissionDist{jj,2});
@@ -210,15 +227,17 @@ for nn=2:N
         logVec = zeros(K,1);
         for kk=1:K
             logzgivenz = logP(kk,jj);
-            logVec(kk) = logzgivenz+prevAlpha(kk);
+            logVec(kk) = logzgivenz+logAlpha(nn-1,kk);
         end
         logAlpha(nn,jj) = logxgivenz+LogSum(logVec,K);
-
+        
     end
-    prevAlpha = logAlpha(nn,:);
+%     cn(nn) = LogSum(logAlpha(nn,:),K);
+%     logAlpha(nn,:) = logAlpha(nn,:)-cn(nn);
+%     prevAlpha = logAlpha(nn,:);
 end
 logProbData = LogSum(logAlpha(N,:),K);
-
+% logProbData = sum(cn);
 end
 
 function [logBeta] = BackwardHMM(P,EmissionDist,emission)
@@ -268,7 +287,7 @@ end
 
 end
 
-function [logProbPath,states] = ViterbiHMM(P,EmissionDist,Pi,emission)
+function [logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,emission)
 %ViterbiHMM.m   
 %   Implements the Viterbi algorithm
 %    given a Hidden Markov model with state transition probabilities
@@ -297,8 +316,8 @@ V = zeros(N,K);
 B = zeros(N,K);
 
 for kk=1:K
-    logxgivenz = LogNormPDF(emission(1,:)',EmissionDist{kk,1}(1,:)',EmissionDist{kk,2});
-    logzgivenz = Pi(kk);
+    logxgivenz = LogMvnPDF(emission(1,:)',EmissionDist{kk,1}(1,:)',EmissionDist{kk,2});
+    logzgivenz = logPi(kk);
     
     V(1,kk) = logxgivenz+logzgivenz;
     B(1,kk) = 0;
@@ -321,7 +340,7 @@ for ii=2:N
     end
 end
 [val,ind] = max(V(end,:));
-[logProbData,~] = ForwardHMM(P,EmissionDist,Pi,emission);
+[logProbData,~] = ForwardHMM(P,EmissionDist,logPi,emission);
 logProbPath = val-logProbData;
 
 % backtrace
@@ -336,8 +355,8 @@ end
 end
 
 function [logPDF] = LogMvnPDF(data,mu,sigmaInv)
-logdet = -2*sum(log(diag(chol(sigmaInv))));
-logPDF = -0.5*logdet-0.5*(data-mu)'*(sigmaInv*(data-mu));
+logdet = sum(log(diag(chol(sigmaInv))));
+logPDF = logdet-0.5*(data-mu)'*(sigmaInv*(data-mu));
 
 end
 
@@ -347,29 +366,37 @@ if vectorLen==0
 elseif vectorLen==1
     summation = vector(1);
 else
-    vector = sort(vector);
-    summation = LogSumExpTwo(vector(1),vector(2));
-    for ii=2:vectorLen-1
-        summation = LogSumExpTwo(summation,vector(ii+1));
-    end
+%     vector = real(vector);
+    maxVal = max(vector);
+    difference = vector-maxVal;
+    summation = maxVal+log1p(sum(exp(difference))-1);
+    
+%     vector = sort(vector);
+%     summation = LogSumExpTwo(vector(1),vector(2));
+%     for ii=2:vectorLen-1
+%         summation = LogSumExpTwo(summation,vector(ii+1));
+%     end
 end
 
 end
 
-function [y] = LogSumExpTwo(x1,x2)
-check = x1>=x2;
-if check==1
-    y = x1+SoftPlus(x2-x1);
-else
-    y = x2+SoftPlus(x1-x2);
-end
-end
-
-function [y] = SoftPlus(x)
-if x<-34 % condition for small x
-   y = 0;
-else
-   y = log(1+exp(-x))+x; % numerically stable calculation of log(1+exp(x))
-end
-
-end
+% function [y] = LogSumExpTwo(x1,x2)
+% check = x1>=x2;
+% if check==1
+%     y = x1+SoftPlus(x2-x1);
+% else
+%     y = x2+SoftPlus(x1-x2);
+% end
+% end
+% 
+% function [y] = SoftPlus(x)
+% % if x<-34 % condition for small x
+% %    y = 0;
+% % else
+% %    y = log(1+exp(-x))+x; % numerically stable calculation of log(1+exp(x))
+% % end
+% 
+% y = log(1+exp(-x))+x;
+% y(x<=-34) = 0;
+% 
+% end

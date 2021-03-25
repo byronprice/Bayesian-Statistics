@@ -13,6 +13,11 @@ else
     end
 end
 
+% maxVal = max(vector);
+% difference = vector-maxVal;
+% summation2 = maxVal+log1p(sum(exp(difference))-1);
+% 
+% abs(summation2-summation)
 end
 
 function [y] = LogSumExpTwo(x1,x2)
