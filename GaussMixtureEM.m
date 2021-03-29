@@ -99,7 +99,7 @@ for tt=1:maxIter
     end
     
     logLikelihood = GetLogLikelihood(data,mu,sigmaInv,piParam,N,K);
-    
+    logLikelihood-prevLikelihood
     if (logLikelihood-prevLikelihood)<=tolerance
         break;
     end
@@ -135,31 +135,6 @@ logPDF = logdet-0.5*(data-mu)'*(sigmaInv*(data-mu));
 
 end
 
-function [X] = SWEEP(X,k)
-%SWEEP.m
-%   Code to evaluate the SWEEP operator on row k of matrix X
-%Inputs: 
-%        X - a matrix, n-by-p
-%        k - the row number on which to evaluate the operator, k<=n
-%
-%Outputs: 
-%        X - the matrix after performing the SWEEP operator on row k
-%
-% Created by: Byron Price
-% 2018/10/08
-
-D = X(k,k);
-X(k,:) = X(k,:)./D;
-
-[n,~] = size(X);
-for ii=[1:k-1,k+1:n]
-   B = X(ii,k);
-   X(ii,:) = X(ii,:)-B.*X(k,:);
-   X(ii,k) = -B/D;
-end
-X(k,k) = 1/D;
-end
-
 function [summation] = LogSum(vector,vectorLen)
 if vectorLen==0
     summation = -Inf;
@@ -167,14 +142,16 @@ elseif vectorLen==1
     summation = vector(1);
 else
 
-%     maxVal = max(vector);
-%     difference = vector-maxVal;
-%     summation = maxVal+log1p(sum(exp(difference))-1);
+    maxVal = max(vector);
+    difference = vector-maxVal;
+    summation = maxVal+log1p(sum(exp(difference))-1);
     
-    vector = sort(vector);
-    summation = LogSumExpTwo(vector(1),vector(2));
-    for ii=2:vectorLen-1
-        summation = LogSumExpTwo(summation,vector(ii+1));
+    if isnan(summation) || summation>1e12
+        vector = sort(vector);
+        summation = LogSumExpTwo(vector(1),vector(2));
+        for ii=2:vectorLen-1
+            summation = LogSumExpTwo(summation,vector(ii+1));
+        end
     end
 end
 
