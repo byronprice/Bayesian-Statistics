@@ -371,7 +371,7 @@ else
     difference = vector-maxVal;
     summation = maxVal+log1p(sum(exp(difference))-1);
     
-    if isnan(summation) || summation>1e12
+    if isnan(summation) || summation>1e9
         vector = sort(vector);
         summation = LogSumExpTwo(vector(1),vector(2));
         for ii=2:vectorLen-1
