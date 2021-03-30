@@ -1,31 +1,38 @@
-function [basis,knots,beta,N] = NaturalCubicSplines(x,knots,y)
+function [basis,knots,theta,N,Omega] = NaturalCubicSplines(x,knots,y)
 %  compute  natural spline basis for a given set of points x and knot
 %   locations in knots
 %     not very numerically stable, so not recommendable when abs(x)>~100
 
 if nargin<2
-    knots = quantile(x,0.1:0.2:0.9);
+    knots = quantile(x,1/6:1/6:1-1/6);
 elseif nargin<3
     getY = false;
-    beta = NaN;
+    theta = NaN;
     N = NaN;
+    Omega = NaN;
 else
     getY = true;
 end
+
 K = length(knots);
 
+basis = GetNaturalSplines(x,K,knots);
+
+if getY
+    % smoothing splines, with knots at every unique point in x
+    lambda = 1;
+    [N,Omega,theta] = RegressSmoothSplines(x,y,lambda);
+end
+end
+
+function [basis] = GetNaturalSplines(x,K,knots)
 basis = zeros(length(x),K);
 basis(:,1) = ones(length(x),1);
 basis(:,2) = x;
 for kk=1:K-2
-    basis(:,kk+2) = (knots(K)-knots(kk))*...
-        (GetDkX(x,knots(kk),knots(K))-GetDkX(x,knots(K-1),knots(K)));
+    basis(:,kk+2) = GetDkX(x,knots(kk),knots(K))-GetDkX(x,knots(K-1),knots(K));
 end
 
-if getY
-    % smoothing splines, with knots at every unique point in x
-    [N,beta] = RegressSmoothSplines(x,y);
-end
 end
 
 function [dkx] = GetDkX(X,psik,psiK)
@@ -34,55 +41,48 @@ dkx = dkx./(psiK-psik);
 
 end
 
-function [N,Omega] = GetOmega(X)
-knots = unique(sort(X));
-K = length(knots);
-
-N = zeros(length(X),K);
-N(:,1) = 1;
-N(:,2) = X;
-
-for kk=1:K-2
-    N(:,kk+2) = (knots(K)-knots(kk))*...
-        (GetDkX(X,knots(kk),knots(K))-GetDkX(X,knots(K-1),knots(K)));
-end
-
-Omega = zeros(K,K);maxx = max(x);
-k1tok1int = GetSplineIntegral(maxx,knots,K-1,K-1,K);
-for jj=1:K-2
-    for kk=1:K-2
-        jtokint = GetSplineIntegral(maxx,knots,jj,kk,K);
-        jtok1int = GetSplineIntegral(maxx,knots,jj,K-1,K);
-        ktok1int = GetSplineIntegral(maxx,knots,kk,K-1,K);
-        Omega(jj+2,kk+2) = jtokint-jtok1int-ktok1int+k1tok1int;    
-    end
-end
-
-end
-
-function [intDkxDkj] = GetSplineIntegral(maxx,knots,j,k,K)
-whichKnot = max(knots(j),knots(k));
-
-intfun = @(x,psik,psij) ((1/3)*x.^3-(psik/2)*x.^2-(psij/2)*x.^2+psik*psij*x);
-
-intDkxDkj = intfun(maxx,knots(j),knots(k))-intfun(whichKnot,knots(j),knots(k));
-intDkxDkj = intDkxDkj+intfun(maxx,knots(k),knots(K))-intfun(knots(K),knots(k),knots(K));
-intDkxDkj = intDkxDkj+intfun(maxx,knots(j),knots(K))-intfun(knots(K),knots(j),knots(K));
-intDkxDkj = intDkxDkj+intfun(maxx,knots(K),knots(K))-intfun(knots(K),knots(K),knots(K));
-intDkxDkj = 36*intDkxDkj;
-
-end
-
-function [N,beta] = RegressSmoothSplines(X,Y)
+function [N,Omega,theta] = RegressSmoothSplines(X,Y,lambda)
 [N,Omega] = GetOmega(X);
 
-lambda = 10;
 % M = N'*N+lambda*Omga;
 % L = chol(M,'lower'); % M = L*L';
-beta = (N'*N+lambda*Omega)\(N'*Y);
+theta = (N'*N+lambda*Omega)\(N'*Y);
 
 % figure;subplot(1,2,1);plot(X,N*beta,'.');
 % subplot(1,2,2);plot(X,Y,'.');
 
 % S = N*((N'*N+lambda*Omega)\N');
 end
+
+function [N,Omega] = GetOmega(X)
+knots = unique(sort(X));
+K = length(knots);
+
+N = GetNaturalSplines(X,K,knots);
+
+Omega = zeros(K,K);
+for jj=1:K-2
+    for kk=1:K-2
+        Omega(jj+2,kk+2) = GetSplineIntegral(knots,jj,kk,K);  
+    end
+end
+
+end
+
+function [intDkxDkj] = GetSplineIntegral(knots,j,k,K)
+whichKnot = max(knots(j),knots(k));
+knotK = knots(K);
+knotK1 = knots(K-1);
+
+intfun = @(x,psik,psij) ((1/3)*x.^3-(psik/2)*x.^2-(psij/2)*x.^2+psik*psij*x);
+
+intDkxDkj = intfun(knotK1,knots(j),knots(k))-intfun(whichKnot,knots(j),knots(k));
+
+intDkxDkj2 = intfun(knotK,knotK,knotK)-intfun(knotK1,knotK,knotK);
+intDkxDkj2 = intDkxDkj2*((knots(j)-knotK1)*(knots(k)-knotK1))/...
+    ((knotK-knotK1)*(knotK-knotK1));
+
+intDkxDkj = (36*(intDkxDkj+intDkxDkj2))/((knotK-knots(j))*(knotK-knots(k)));
+
+end
+
