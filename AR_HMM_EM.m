@@ -79,8 +79,7 @@ prevLikelihood = -Inf;
 for iter=1:maxIter
     % E step
     %   calculate responsibilities and soft transition matrix
-    [currentLikelihood,logalpha] = ForwardHMM(P,EmissionDist,logPi,data);
-    [logbeta] = BackwardHMM(P,EmissionDist,data);
+    [currentLikelihood,logalpha,logbeta] = ForwardBackwardHMM(P,EmissionDist,logPi,data);
     
     logepsilon = zeros(N-1,K,K);
     for nn=2:N
@@ -187,13 +186,13 @@ steadyState = V(:,index)./sum(V(:,index));
 
 end
 
-function [logProbData,logAlpha] = ForwardHMM(P,EmissionDist,logPi,emission)
-%ForwardHMM.m 
-%   Implements the forward algorithm
+function [logProbData,logAlpha,logBeta] = ForwardBackwardHMM(P,EmissionDist,logPi,emission)
+%ForwardBackwardHMM.m 
+%   Implements the forward-backward algorithm
 %    given a Hidden Markov model with state transition probabilities
 %   given by P and assuming the emission distribution given the state is a
 %   normal random variable with a unique mean and variance for each state,
-%   find the probability of the data P(y)
+%   find the probability of the data P(x)
 %INPUTS:
 %        P - transition probability matrix [number of states by number of
 %           states]
@@ -203,8 +202,10 @@ function [logProbData,logAlpha] = ForwardHMM(P,EmissionDist,logPi,emission)
 %OUTPUTS:
 %        logProbData - probability of the observed data, under the model
 %        logAlpha - log of the probability of being in a given state at a
-%          given moment
-% Byron Price, 2021/01/02
+%          given moment from forward pass
+%        logBeta - log probability of being in a given state from backward
+%          pass
+% Byron Price, 2021/04/01
 
 [N,~] = size(emission);
 
@@ -212,78 +213,43 @@ logP = log(P);
 K = size(P,1);
 
 logAlpha = zeros(N,K);
-% cn = zeros(N,1);
+logBeta = zeros(N,K);
+logxgivenz = zeros(N,K);
 
 for jj=1:K
-    logxgivenz = LogMvnPDF(emission(1,:)',EmissionDist{jj,1}(1,:)',EmissionDist{jj,2});
-    logAlpha(1,jj) = logxgivenz+logPi(jj);
+    logxgivenz(1,jj) = LogMvnPDF(emission(1,:)',EmissionDist{jj,1}(1,:)',EmissionDist{jj,2});
+    logAlpha(1,jj) = logxgivenz(1,jj)+logPi(jj);
 end
-% cn(1) = LogSum(logAlpha(1,:),K);
-% logAlpha(1,:) = logAlpha(1,:)-cn(1);
+
+% logBeta(N,:) = 0;
+backOrder = N:-1:1;
+
 for nn=2:N
+    if nn<=ceil(N/2)+1
+        for jj=1:K
+            logxgivenz(nn,jj) = LogMvnPDF(emission(nn,:)',EmissionDist{jj,1}(nn,:)',EmissionDist{jj,2});
+            logxgivenz(backOrder(nn)+1,jj) = LogMvnPDF(emission(backOrder(nn)+1,:)',...
+                EmissionDist{jj,1}(backOrder(nn)+1,:)',EmissionDist{jj,2});
+        end
+    end
+    
     for jj=1:K
-        logxgivenz = LogMvnPDF(emission(nn,:)',EmissionDist{jj,1}(nn,:)',EmissionDist{jj,2});
         
-        logVec = zeros(K,1);
+        logVec = zeros(K,2);
         for kk=1:K
             logzgivenz = logP(kk,jj);
-            logVec(kk) = logzgivenz+logAlpha(nn-1,kk);
+            logVec(kk,1) = logzgivenz+logAlpha(nn-1,kk);
+
+            logzgivenz = logP(jj,kk);
+            logVec(kk,2) = logxgivenz(backOrder(nn)+1,kk)+logzgivenz+logBeta(backOrder(nn)+1,kk);
         end
-        logAlpha(nn,jj) = logxgivenz+LogSum(logVec,K);
+        logAlpha(nn,jj) = logxgivenz(nn,jj)+LogSum(logVec(:,1),K);
+        
+        logBeta(backOrder(nn),jj) = LogSum(logVec(:,2),K);
         
     end
-%     cn(nn) = LogSum(logAlpha(nn,:),K);
-%     logAlpha(nn,:) = logAlpha(nn,:)-cn(nn);
-%     prevAlpha = logAlpha(nn,:);
 end
 logProbData = LogSum(logAlpha(N,:),K);
-% logProbData = sum(cn);
-end
-
-function [logBeta] = BackwardHMM(P,EmissionDist,emission)
-%BackwardHMM.m 
-%   Implements the backward algorithm
-%    given a Hidden Markov model with state transition probabilities
-%   given by P and assuming the emission distribution given the state is a
-%   normal random variable with a unique mean and variance for each state,
-%   find the probability of the data P(y)
-%INPUTS:
-%        P - transition probability matrix [number of states by number of
-%           states]
-%        EmissionDist - emission cell array (mean and covariance of normal
-%           distribution for each state) [states by 2]
-%        emission - observed data
-%        logAlpha - log of the probability of being in a given state a
-%         given moment, provided by the forward algorithm
-%OUTPUTS:
-%        logBeta - log of the probability of being in a given state at a
-%          given moment
-% Byron Price, 2021/01/02
-
-[N,~] = size(emission);
-
-logP = log(P);
-K = size(P,1);
-
-logBeta = zeros(N,K);
-
-logBeta(N,:) = 0;
-prevBeta = logBeta(N,:);
-
-for nn=N-1:-1:1
-    for jj=1:K
-        
-        logVec = zeros(K,1);
-        for kk=1:K
-            logxgivenz = LogMvnPDF(emission(nn+1,:)',EmissionDist{kk,1}(nn+1,:)',EmissionDist{kk,2});
-            logzgivenz = logP(jj,kk);
-            logVec(kk) = logxgivenz+logzgivenz+prevBeta(kk);
-        end
-        logBeta(nn,jj) = LogSum(logVec,K);
-
-    end
-    prevBeta = logBeta(nn,:);
-end
 
 end
 

@@ -54,20 +54,14 @@ for tt=1:maxIter
     % E step, calculate alpha-i,t
     alpha = zeros(N,K);
     
-    for ii=1:K
-        for jj=1:N
+    for jj=1:N
+        for ii=1:K 
             alpha(jj,ii) = GetLogMvnLikelihood(data(jj,:)',mu{ii},sigmaInv{ii})+log(piParam(ii));
         end
-    end
-    
-    for ii=1:N
-        tmp = alpha(ii,:);
+        tmp = alpha(jj,:);
         tmp = tmp-LogSum(tmp,K);
-        alpha(ii,:) = tmp; % log of alpha values, i.e. the probability 
-                       % that a given datapoint comes from a given
-                       % component, given values of that datapoint and the
-                       % current estimate of mu and sigma for that
-                       % component (under the multivariate Gaussian model)
+        alpha(jj,:) = tmp; % log of alpha values, probability that a given 
+                       % datapoint comes from a given component
     end
     
     % M step, calculate new values for parameters pi, mu, sigma
@@ -99,7 +93,7 @@ for tt=1:maxIter
     end
     
     logLikelihood = GetLogLikelihood(data,mu,sigmaInv,piParam,N,K);
-    logLikelihood-prevLikelihood
+    
     if (logLikelihood-prevLikelihood)<=tolerance
         break;
     end
