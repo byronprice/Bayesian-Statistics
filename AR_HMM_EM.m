@@ -175,7 +175,8 @@ for iter=1:maxIter
 end
 
 % calculate most probable sequence of states
-[logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,data);
+logProbData = ForwardBackwardHMM(P,EmissionDist,logPi,data);
+[logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,data,logProbData);
 Pi = exp(logPi);
 
 % calculate steady state probabilities
@@ -253,7 +254,7 @@ logProbData = LogSum(logAlpha(N,:),K);
 
 end
 
-function [logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,emission)
+function [logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,emission,logProbData)
 %ViterbiHMM.m   
 %   Implements the Viterbi algorithm
 %    given a Hidden Markov model with state transition probabilities
@@ -306,7 +307,7 @@ for ii=2:N
     end
 end
 [val,ind] = max(V(end,:));
-[logProbData,~] = ForwardHMM(P,EmissionDist,logPi,emission);
+% [logProbData,~] = ForwardHMM(P,EmissionDist,logPi,emission);
 logProbPath = val-logProbData;
 
 % backtrace
