@@ -5,6 +5,7 @@ function [basis,knots,theta,N,Omega] = NaturalCubicSplines(x,knots,y)
 
 if nargin<2
     knots = quantile(x,1/6:1/6:1-1/6);
+    getY = false;
 elseif nargin<3
     getY = false;
     theta = NaN;
