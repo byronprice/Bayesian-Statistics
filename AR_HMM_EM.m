@@ -2,15 +2,43 @@ function [logProbPath,states,A,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K
 % AR_HMM_EM.m
 %   EM algorithm to fit the parameters of a discrete-state autoregressive
 %     Hidden Markov Model
+%    - a discrete first-order Markov chain governs the latent state space, 
+%      while a vector autoregressive process models the observed data
 %
-%  certain scenarios warrant a so-called left-to-right transition
-%   probability matrix, in that case, simply set the matrix initially to be
-%   an upper triangular matrix, if the probabilities start at zero, they
-%   will remain at 0
+%INPUT:  data - raw data (N-by-d matrix where N is the number of time points 
+%           and d is the dimensionality
+%           (in this case, N is the number of video frames and d is 10 for 10
+%           principal components extracted from pre-processed Kinect2 depth
+%           video)
+%        K - desired number of states / behavioral modules
+%        nLags - number of lags to use for autoregressive process 
+%
+%OUTPUT: logProbPath - log probability of the most likely path through the
+%           latent state space, output by the Viterbi algorithm
+%        states - most likely sequence of states for each frame in the
+%           input data (a number from 1 to K in each of (N-nLags) positions 
+%           denoting the estimated latent space)
+%        A - cell array (K-by-1) where each cell contains a set of autoregressive 
+%           transition matrices for each of the K states and nLags time
+%           lags, estimated from the data
+%        Pi - K-by-1 vector, estimated categorical probability distribution 
+%           representing probability for the first state in the sequence 
+%           (to initialize Markov chain)
+%        P - K-by-K matrix, learned transition probability matrix for the latent
+%            Markov chain
+%        EmissionDist - K-by-2 cell array, where each cell represents the
+%            inferred mean and precision (inverse covariance) of the 
+%            autoregressive emission distribution for each state
+%        steadyState - K-by-1 vector, inferred steady state categorical probability
+%            distribution representing the long-run probability that the
+%            latent process is in a given state (among K states)
+
 
 [N,d] = size(data);
 
-nBackData = zeros(N-nLags,d,nLags+1);
+nBackData = zeros(N-nLags,d,nLags+1); % reorganize data for autoregressive process,
+                        % such that we get the data at different time lags
+                        % back
 nBackData(:,:,end) = 1;
 for tt=1:nLags
     nBackData(:,:,tt) = data(nLags+1-tt:end-tt,:);
@@ -19,7 +47,7 @@ end
 data = data(nLags+1:end,:);
 [N,~] = size(data);
 
-% sufficient stats
+% compute sufficient stats for M step
 xPhiT = zeros(N,d,d*nLags+1);
 phiPhiT = zeros(N,d*nLags+1,d*nLags+1);
 for nn=1:N
@@ -30,31 +58,20 @@ for nn=1:N
 end
 
 AA = squeeze(sum(real(exp(xPhiT)),1))/squeeze(sum(real(exp(phiPhiT)),1));
+       % initial estimate based on all the data for the autoregressive
+       % transition matrices
 
 nBackData = reshape(nBackData,[N,d*(nLags+1)]);
 nBackData = nBackData(:,1:end-d+1);
 
 % start with Gaussian Mixture Model to initialize emission distribution and
-%  transition probability matrix
+%  Pi
 [Pi,~,sigma,~] = GaussMixtureEM(data,K);
 
 logPi = log(Pi);
 
-% states = zeros(N,1);
-% 
-% for nn=1:N
-%     [~,ind] = max(logalpha(nn,:));
-%     states(nn) = ind;
-% end
-
-% newsigma = zeros(d,d);
-% for kk=1:K
-%     newsigma = newsigma+real(sigma{kk})./K;
-% end
-% sigma = newsigma;
-
 Id = eye(d);
-EmissionDist = cell(K,2);A = cell(K,1);
+EmissionDist = cell(K,2);A = cell(K,1); % initialize stored parameters for output
 mu = cell(K,1);
 for kk=1:K
     A{kk} = AA;
@@ -64,8 +81,17 @@ for kk=1:K
 end
 clear AA;
 
-pseudoObservations = 100; % for dirichlet prior
-stickiness = 0.925;
+pseudoObservations = 100; % dirichlet prior on transition probability matrix, used in 
+              % original Wiltschko paper to regularize model output
+              % (in a Markov chain, the maximum likelihood estimate for two 
+              %  states for which there are no examples of a transition is
+              %  p_jk = 0, which in log probability is -infinity ... for
+              %  the latent Markov chain, a similar problem occurs when two
+              %  states are very unlikely to transition into each other,
+              %  the dirichlet adds "pseudo-observations" as if one
+              %  state had transitioned into the other, just a small number
+              %  to avoid a probability of zero)
+stickiness = 0.95;%0.925;
 P = stickiness.*eye(K);
 P = P+((1-stickiness)/(K-1)).*(1-eye(K));
 
@@ -78,10 +104,12 @@ tolerance = 1e-6;
 prevLikelihood = -Inf;
 for iter=1:maxIter
     % E step
-    %   calculate responsibilities and soft transition matrix
+    %   Compute expectations
+    %     calculate responsibilities (in log space) and soft transition matrix
+    %     using the Forward-Backward algorithm
     [currentLikelihood,logalpha,logbeta] = ForwardBackwardHMM(P,EmissionDist,logPi,data);
     
-    logepsilon = zeros(N-1,K,K);
+    logepsilon = zeros(N-1,K,K); % soft transition matrix
     for nn=2:N
         for kk=1:K
             logxgivenz = LogMvnPDF(data(nn,:)',...
@@ -116,9 +144,12 @@ for iter=1:maxIter
         P(jj,:) = P(jj,:)./sum(P(jj,:));
     end
    
-    % emissions update, state emission distribution
-%     sigma = zeros(d,d);
+    % emissions update, state emission distribution and autoregression
+    %  transition matrices
     for kk=1:K
+        
+        % weight sufficient statistics with log responsibilities to compute
+        %  autoregressive transition matrix A
         normalization = LogSum(logalpha(:,kk)+logbeta(:,kk),N);
         sumXPhiT = zeros(d,d*nLags+1);
         
@@ -137,9 +168,13 @@ for iter=1:maxIter
             end
         end
         
-        A{kk} = sumXPhiT/sumPhiPhiT;
-        mu{kk} = nBackData*A{kk}';
+        A{kk} = sumXPhiT/sumPhiPhiT; % calculate A for each state
+        mu{kk} = nBackData*A{kk}'; % mean of Gaussian emission distribution, given 
+                             % value of A
         
+        % compute sigma, covariance matrix of Gaussian emission
+        % distribution for each state k ... computed using a weighted sum
+        % of model residuals, where everything is transformed to log space
         tmp = zeros(N,d,d);
         for nn=1:N
             tmp(nn,:,:) = log((data(nn,:)'-mu{kk}(nn,:)')*(data(nn,:)'-mu{kk}(nn,:)')')+...
@@ -157,13 +192,8 @@ for iter=1:maxIter
         EmissionDist{kk,1} = mu{kk};
         EmissionDist{kk,2} = sigma{kk}\Id;
     end
-    
-%     normalization = LogSum(logalpha(:)+logbeta(:),N*K);
-%     sigma = exp(sigma-normalization);
-%     sigmaInv = sigma\Id;
-%     for kk=1:K
-%         EmissionDist{kk,2} = sigmaInv;
-%     end
+   
+    % stop criterion, change in loglikelihood less than tolerance
 
 %     [currentLikelihood,~] = ForwardHMM(P,EmissionDist,Pi,data);
     currentLikelihood-prevLikelihood
@@ -174,12 +204,13 @@ for iter=1:maxIter
     end
 end
 
-% calculate most probable sequence of states
+% calculate most probable sequence of states using Viterbi algorithm
 logProbData = ForwardBackwardHMM(P,EmissionDist,logPi,data);
 [logProbPath,states] = ViterbiHMM(P,EmissionDist,logPi,data,logProbData);
 Pi = exp(logPi);
 
-% calculate steady state probabilities
+% calculate steady state probabilities from inferred transition probability
+%  matrix
 [~,D,V] = eig(P);
 D = diag(D);
 [~,index] = min(abs(D-1));
@@ -207,6 +238,8 @@ function [logProbData,logAlpha,logBeta] = ForwardBackwardHMM(P,EmissionDist,logP
 %        logBeta - log probability of being in a given state from backward
 %          pass
 % Byron Price, 2021/04/01
+
+% see attached Methods for details on algorithm
 
 [N,~] = size(emission);
 
