@@ -91,7 +91,7 @@ pseudoObservations = 100; % dirichlet prior on transition probability matrix, us
               %  the dirichlet adds "pseudo-observations" as if one
               %  state had transitioned into the other, just a small number
               %  to avoid a probability of zero)
-stickiness = 0.95;%0.925;
+stickiness = 0.925;%0.925;
 P = stickiness.*eye(K);
 P = P+((1-stickiness)/(K-1)).*(1-eye(K));
 
