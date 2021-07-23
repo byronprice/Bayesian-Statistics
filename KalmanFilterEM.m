@@ -50,8 +50,9 @@ Sigma = dataCov./(N-1);
 % transformation from z to x
 C = normrnd(0,1,[d,K]);
 
-% estimate of observation noise covariance
-Gamma = C'*(Sigma./2)*C;
+% estimate of latent variable noise covariance
+tmp = normrnd(0,Sigma(1,1),[10*K,K]);
+Gamma = cov(tmp);
 
 % generate transformation matrix for vector autoregressive process
 if K==d
@@ -70,7 +71,7 @@ end
 % A = mldivide(data(:,1:end-1)',data(:,2:end)')';
 
 if K==d
-    mu0 = mean(data{1},2);
+    mu0 = mean(data,2);
     V0 = Sigma;
 else
     mu0 = zeros(K,1);
