@@ -3,9 +3,9 @@ function [W,mu,Psi,z,likelihood] = FactorAnalysis_EM(data,K)
 %    EM algorithm for latent factor analysis
 
 [d,N] = size(data);
+[U,~,~] = svd(data,'econ');
 
-W = normrnd(0,1,[d,K]);
-Psi = normrnd(0,1,[d,1]);
+W = U(:,1:K);
 Ik = eye(K);
 
 mu = mean(data,2);
@@ -13,6 +13,8 @@ mu = mean(data,2);
 data = data-repmat(mu,[1,N]);
 
 dataCov = sum(data.*data,2)./N;
+
+Psi = dataCov;
 
 maxIter = 1000;
 tolerance = 1e-6;oldW = W;

@@ -1,7 +1,7 @@
 function [CI,CIpivotal] = StudentizedBootstrap(data,func,iters)
 % StudentizedBootstrap.m
 %   compute a confidence interval from the studentized bootstrap
-%      best for pivotal statistics
+%       best for pivotal statistics
 
 N = length(data);
 alpha = 0.05;
