@@ -42,7 +42,7 @@ mu = cell(K,1);
 sigmaInv = cell(K,1);
 Id = eye(d);
 for ii=1:K
-   currentData = data(data(:,1)>=Q(1,ii) & data(:,1)<Q(1,ii+1),:);
+   currentData = data(data(:,1)>=Q(1,ii) & data(:,1)<=Q(1,ii+1),:);
    mu{ii} = mean(currentData)';
    sigmaInv{ii} = cov(currentData)\Id;
 end
@@ -105,7 +105,7 @@ end
 
 % evaluate log likelihood of the data
 
-% logLikelihood = GetLogLikelihood(data,mu,sigma,piParam,N,K);
+logLikelihood = GetLogLikelihood(data,mu,sigmaInv,piParam,N,K);
 sigma = cell(K,1);
 for kk=1:K
    sigma{kk} = sigmaInv{kk}\Id;
