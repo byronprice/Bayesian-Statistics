@@ -1,4 +1,4 @@
-function [logProbPath,states,A,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K,nLags)
+function [logProbPath,states,A,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K,nLags,alpha)
 % AR_HMM_EM.m
 %   EM algorithm to fit the parameters of a discrete-state autoregressive
 %     Hidden Markov Model
@@ -12,6 +12,13 @@ function [logProbPath,states,A,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K
 %           video)
 %        K - desired number of states / behavioral modules
 %        nLags - number of lags to use for autoregressive process 
+%        alpha - constant between 0 and 1 for normalization of the observed
+%        data covariance ... the covariance for each latent state will
+%            be (1-alpha)*Sigma_global + (alpha)*Sigma_local ... this
+%            regularizes the covariance matrices across states, alpha = 1
+%            means the algorithm uses only the local (within-state) covariance
+%               Defaults to 1. You can find the best value through
+%               cross-validation.
 %
 %OUTPUT: logProbPath - log probability of the most likely path through the
 %           latent state space, output by the Viterbi algorithm
@@ -33,6 +40,9 @@ function [logProbPath,states,A,Pi,P,EmissionDist,steadyState] = AR_HMM_EM(data,K
 %            distribution representing the long-run probability that the
 %            latent process is in a given state (among K states)
 
+if nargin<4
+    alpha = 1; % use local covariance
+end
 
 [N,d] = size(data);
 
@@ -71,7 +81,8 @@ nBackData = nBackData(:,1:end-d+1);
 logPi = log(Pi);
 
 Id = eye(d);
-EmissionDist = cell(K,2);A = cell(K,1); % initialize stored parameters for output
+EmissionDist = cell(K,2);
+A = cell(K,1); % initialize stored parameters for output
 mu = cell(K,1);
 for kk=1:K
     A{kk} = AA;
@@ -81,7 +92,7 @@ for kk=1:K
 end
 clear AA;
 
-pseudoObservations = 100; % dirichlet prior on transition probability matrix, used in 
+pseudoObservations = 50; % dirichlet prior on transition probability matrix, used in 
               % original Wiltschko paper to regularize model output
               % (in a Markov chain, the maximum likelihood estimate for two 
               %  states for which there are no examples of a transition is
@@ -91,7 +102,7 @@ pseudoObservations = 100; % dirichlet prior on transition probability matrix, us
               %  the dirichlet adds "pseudo-observations" as if one
               %  state had transitioned into the other, just a small number
               %  to avoid a probability of zero)
-stickiness = 0.925;%0.925;
+stickiness = 0.95;%0.925;
 P = stickiness.*eye(K);
 P = P+((1-stickiness)/(K-1)).*(1-eye(K));
 
@@ -146,6 +157,7 @@ for iter=1:maxIter
    
     % emissions update, state emission distribution and autoregression
     %  transition matrices
+    globalSigma = zeros(d,d);
     for kk=1:K
         
         % weight sufficient statistics with log responsibilities to compute
@@ -183,19 +195,42 @@ for iter=1:maxIter
         
         for jj=1:d
             for dd=1:d
-                sigma{kk}(jj,dd) = real(exp(LogSum(squeeze(tmp(:,jj,dd)),N)...
-                    -normalization));
-%                   sigma(jj,dd) = sigma(jj,dd)+LogSum(squeeze(tmp(:,jj,dd)),N);
+                tmp = LogSum(squeeze(tmp(:,jj,dd)),N);
+                sigma{kk}(jj,dd) = real(exp(tmp-normalization));
+                globalSigma(jj,dd) = sigma(jj,dd)+tmp;
             end
         end
         
         EmissionDist{kk,1} = mu{kk};
-        EmissionDist{kk,2} = sigma{kk}\Id;
+        EmissionDist{kk,2} = sigma{kk};
     end
-   
+    
+    normalization = LogSum(logalpha(:)+logbeta(:),N*K);
+    globalSigma = exp(globalSigma-normalization);
+    for kk=1:K
+        EmissionDist{kk,2} = (alpha*EmissionDist{kk,2}+(1-alpha)*globalSigma)\Id;
+    end
+    
+    badInds = false(K,1);
+    for kk=1:K
+       try
+           chol(EmissionDist{kk,2});
+       catch
+           prevLikelihood = -Inf;
+           K = K-1;
+           badInds(kk) = true;
+       end
+    end
+    
+    logPi(badInds) = [];
+    P(badInds,:) = [];
+    P(:,badInds) = [];
+    EmissionDist(badInds,:) = [];
+    A(badInds) = [];
+    mu(badInds) = [];
+    
     % stop criterion, change in loglikelihood less than tolerance
 
-%     [currentLikelihood,~] = ForwardHMM(P,EmissionDist,Pi,data);
     currentLikelihood-prevLikelihood
     if currentLikelihood-prevLikelihood > tolerance
         prevLikelihood = currentLikelihood;

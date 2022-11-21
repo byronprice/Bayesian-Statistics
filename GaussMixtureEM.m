@@ -92,7 +92,7 @@ for tt=1:maxIter
         sigmaStar{ii} = sigmaStar{ii}\Id;
     end
     
-    logLikelihood = GetLogLikelihood(data,mu,sigmaInv,piParam,N,K);
+    logLikelihood = GetLogLikelihood(data,muStar,sigmaStar,piParamStar,N,K);
     
     if (logLikelihood-prevLikelihood)<=tolerance
         break;
