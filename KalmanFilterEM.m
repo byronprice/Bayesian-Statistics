@@ -134,7 +134,7 @@ for tt=1:maxIter
     C = Sum_dataEz/Sum_Ezn_zn;
     
     % update sigma
-    tmp = C*Ez*data';
+    tmp = C*Sum_dataEz';
     Sigma = (1/(N-1))*(dataCov-tmp-tmp'+C*Sum_Ezn_zn*C');
     
     if currentLikelihood-prevLikelihood<=tolerance
